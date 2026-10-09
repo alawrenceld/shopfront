@@ -82,11 +82,17 @@ export function createApp(): express.Express {
       }
       res.json({ products: list });
       trackEvent("enable-category-filter-products-loaded", req.sessionId);
+      // Guarded-release telemetry for enable-price-sort: emitted on BOTH the
+      // control and v1 paths so the release can compare them. Never throws.
+      trackEvent("enable-price-sort-products-loaded", req.sessionId);
     } catch (err) {
       trackEvent("enable-category-filter-error", req.sessionId);
+      trackEvent("enable-price-sort-error", req.sessionId);
       throw err;
     } finally {
-      trackEvent("enable-category-filter-latency", req.sessionId, performance.now() - startedAt);
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-category-filter-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-price-sort-latency", req.sessionId, elapsedMs);
     }
   });
 
