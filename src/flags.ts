@@ -54,6 +54,29 @@ export async function getVariation(
   }
 }
 
+/**
+ * Emit a LaunchDarkly custom event (feeds guarded-release metrics) for the same
+ * session context flags are evaluated on. Fire-and-forget: a no-op when
+ * LaunchDarkly is not configured, and it never throws or rejects, so telemetry
+ * can never break a request. Pass event keys as LITERAL strings at call sites.
+ */
+export function trackEvent(eventKey: string, sessionId: string, metricValue?: number): void {
+  try {
+    void getClient()
+      .then((client) => {
+        if (!client) return;
+        try {
+          client.track(eventKey, contextForSession(sessionId), undefined, metricValue);
+        } catch {
+          // telemetry must never affect the request
+        }
+      })
+      .catch(() => {});
+  } catch {
+    // telemetry must never affect the request
+  }
+}
+
 export async function closeFlags(): Promise<void> {
   const client = await clientPromise;
   await client?.close();
