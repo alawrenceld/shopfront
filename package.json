@@ -1,0 +1,32 @@
+{
+  "name": "shopfront",
+  "version": "0.1.0",
+  "description": "A small e-commerce storefront: product catalog, cart, and checkout.",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@launchdarkly/node-server-sdk": "^9.7.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

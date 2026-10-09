@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shopfront</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>Shopfront</h1>
+      <p class="tagline" id="tagline"></p>
+    </div>
+  </header>
+  <div id="promo" class="promo" hidden></div>
+  <main>
+    <section>
+      <h2>Products</h2>
+      <div id="products" class="grid"></div>
+    </section>
+    <aside>
+      <h2>Cart</h2>
+      <div id="cart"></div>
+      <button id="checkout" disabled>Checkout</button>
+      <div id="order-result" hidden></div>
+    </aside>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
