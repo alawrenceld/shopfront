@@ -17,10 +17,15 @@ async function loadStorefront() {
     promo.textContent = info.promoBanner;
     promo.hidden = false;
   }
+  // enable-category-filter: server sends categoryFilter = (variation === "v1")
+  if (info.categoryFilter === true) {
+    document.getElementById("filters").hidden = false;
+  }
 }
 
-async function loadProducts() {
-  const { products } = await api("/api/products");
+async function loadProducts(category = "") {
+  const path = category ? `/api/products?category=${category}` : "/api/products";
+  const { products } = await api(path);
   const grid = document.getElementById("products");
   grid.replaceChildren(
     ...products.map((p) => {
@@ -80,6 +85,13 @@ document.getElementById("checkout").addEventListener("click", async () => {
   result.textContent = `Order placed: ${order.id} — ${fmt(order.totalCents)}`;
   result.hidden = false;
   await renderCart();
+});
+
+document.getElementById("filters").addEventListener("click", async (event) => {
+  const btn = event.target.closest(".filter");
+  if (!btn) return;
+  document.querySelectorAll(".filter").forEach((b) => b.classList.toggle("active", b === btn));
+  await loadProducts(btn.dataset.category);
 });
 
 loadStorefront();

@@ -6,9 +6,10 @@ import cookieParser from "cookie-parser";
 import { products, getProduct } from "./catalog.js";
 import { addToCart, removeFromCart, clearCart, viewCart } from "./cart.js";
 import { placeOrder, getOrder } from "./orders.js";
-import { isEnabled } from "./flags.js";
+import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
 const SESSION_COOKIE = "shopfront_session";
+const CATEGORY_FILTER_FLAG = "enable-category-filter";
 
 declare global {
   namespace Express {
@@ -39,15 +40,40 @@ export function createApp(): express.Express {
 
   app.get("/api/storefront", async (req, res) => {
     const showPromoBanner = await isEnabled("show-promo-banner", req.sessionId);
+    const categoryFilter = (await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
       promoBanner: showPromoBanner ? "Free shipping on orders over $40 this week." : null,
+      categoryFilter,
     });
   });
 
-  app.get("/api/products", (_req, res) => {
-    res.json({ products });
+  app.get("/api/products", async (req, res) => {
+    // Guarded-release telemetry for enable-category-filter: emitted on BOTH the
+    // control and v1 paths (same session context as the flag) so the release
+    // can compare them. trackEvent never throws; behavior is unchanged.
+    const startedAt = performance.now();
+    try {
+      const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
+      const category = req.query.category;
+      if (categoryFilterVariation === "v1" && category !== undefined) {
+        if (category !== "beans" && category !== "gear") {
+          res.status(400).json({ error: "unknown category" });
+          return;
+        }
+        res.json({ products: products.filter((p) => p.category === category) });
+        trackEvent("enable-category-filter-products-loaded", req.sessionId);
+        return;
+      }
+      res.json({ products });
+      trackEvent("enable-category-filter-products-loaded", req.sessionId);
+    } catch (err) {
+      trackEvent("enable-category-filter-error", req.sessionId);
+      throw err;
+    } finally {
+      trackEvent("enable-category-filter-latency", req.sessionId, performance.now() - startedAt);
+    }
   });
 
   app.get("/api/products/:id", (req, res) => {
