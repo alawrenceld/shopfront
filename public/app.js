@@ -21,6 +21,10 @@ async function loadStorefront() {
   if (info.categoryFilter === true) {
     document.getElementById("filters").hidden = false;
   }
+  // enable-price-sort: server sends priceSort = (variation === "v1")
+  if (info.priceSort === true) {
+    document.querySelector(".sort-row").hidden = false;
+  }
 }
 
 const listState = { category: "", sort: "" };

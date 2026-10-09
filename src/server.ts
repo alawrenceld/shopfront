@@ -10,6 +10,7 @@ import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
 const SESSION_COOKIE = "shopfront_session";
 const CATEGORY_FILTER_FLAG = "enable-category-filter";
+const PRICE_SORT_FLAG = "enable-price-sort";
 
 declare global {
   namespace Express {
@@ -41,11 +42,13 @@ export function createApp(): express.Express {
   app.get("/api/storefront", async (req, res) => {
     const showPromoBanner = await isEnabled("show-promo-banner", req.sessionId);
     const categoryFilter = (await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control")) === "v1";
+    const priceSort = (await getVariation(PRICE_SORT_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
       promoBanner: showPromoBanner ? "Free shipping on orders over $40 this week." : null,
       categoryFilter,
+      priceSort,
     });
   });
 
@@ -56,6 +59,7 @@ export function createApp(): express.Express {
     const startedAt = performance.now();
     try {
       const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
+      const priceSortVariation = await getVariation(PRICE_SORT_FLAG, req.sessionId, "control");
       const category = req.query.category;
       let list = products;
       if (categoryFilterVariation === "v1" && category !== undefined) {
@@ -65,8 +69,10 @@ export function createApp(): express.Express {
         }
         list = products.filter((p) => p.category === category);
       }
+      // enable-price-sort: only the "v1" variation honors ?sort=; on control the
+      // param is ignored entirely (no validation, no 400) — pre-PR behavior.
       const sort = req.query.sort;
-      if (sort !== undefined) {
+      if (priceSortVariation === "v1" && sort !== undefined) {
         if (sort !== "price-asc" && sort !== "price-desc") {
           res.status(400).json({ error: "unknown sort" });
           return;

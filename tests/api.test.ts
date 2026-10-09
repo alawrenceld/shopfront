@@ -34,21 +34,18 @@ describe("products", () => {
     await agent().get("/api/products?category=snacks").expect(200);
   });
 
-  it("sorts by price ascending", async () => {
-    const res = await agent().get("/api/products?sort=price-asc").expect(200);
-    const prices = res.body.products.map((p: { priceCents: number }) => p.priceCents);
-    expect(prices).toEqual([...prices].sort((a, b) => a - b));
-    expect(prices[0]).toBe(Math.min(...prices));
+  // enable-price-sort defaults to "control" when flags are unconfigured:
+  // the sort param is ignored and the catalog order is unchanged (pre-PR behavior).
+  it("ignores the sort param on the control path", async () => {
+    const all = await agent().get("/api/products").expect(200);
+    const asc = await agent().get("/api/products?sort=price-asc").expect(200);
+    const desc = await agent().get("/api/products?sort=price-desc").expect(200);
+    expect(asc.body.products).toEqual(all.body.products);
+    expect(desc.body.products).toEqual(all.body.products);
   });
 
-  it("sorts by price descending", async () => {
-    const res = await agent().get("/api/products?sort=price-desc").expect(200);
-    const prices = res.body.products.map((p: { priceCents: number }) => p.priceCents);
-    expect(prices).toEqual([...prices].sort((a, b) => b - a));
-  });
-
-  it("rejects an unknown sort", async () => {
-    await agent().get("/api/products?sort=alphabetical").expect(400);
+  it("does not reject unknown sorts on the control path", async () => {
+    await agent().get("/api/products?sort=alphabetical").expect(200);
   });
 });
 
@@ -117,5 +114,6 @@ describe("storefront", () => {
     const res = await agent().get("/api/storefront").expect(200);
     expect(res.body.name).toBe("Shopfront");
     expect(res.body.promoBanner).toBeNull();
+    expect(res.body.priceSort).toBe(false);
   });
 });

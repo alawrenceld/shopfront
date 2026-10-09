@@ -68,6 +68,10 @@ main {
   font-size: 0.9rem;
 }
 
+.sort-row[hidden] {
+  display: none;
+}
+
 .sort-row select {
   font: inherit;
   padding: 0.35rem 0.5rem;
