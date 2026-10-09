@@ -23,9 +23,14 @@ async function loadStorefront() {
   }
 }
 
-async function loadProducts(category = "") {
-  const path = category ? `/api/products?category=${category}` : "/api/products";
-  const { products } = await api(path);
+const listState = { category: "", sort: "" };
+
+async function loadProducts() {
+  const params = new URLSearchParams();
+  if (listState.category) params.set("category", listState.category);
+  if (listState.sort) params.set("sort", listState.sort);
+  const qs = params.toString();
+  const { products } = await api(qs ? `/api/products?${qs}` : "/api/products");
   const grid = document.getElementById("products");
   grid.replaceChildren(
     ...products.map((p) => {
@@ -91,7 +96,13 @@ document.getElementById("filters").addEventListener("click", async (event) => {
   const btn = event.target.closest(".filter");
   if (!btn) return;
   document.querySelectorAll(".filter").forEach((b) => b.classList.toggle("active", b === btn));
-  await loadProducts(btn.dataset.category);
+  listState.category = btn.dataset.category;
+  await loadProducts();
+});
+
+document.getElementById("sort").addEventListener("change", async (event) => {
+  listState.sort = event.target.value;
+  await loadProducts();
 });
 
 loadStorefront();

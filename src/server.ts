@@ -57,16 +57,24 @@ export function createApp(): express.Express {
     try {
       const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
       const category = req.query.category;
+      let list = products;
       if (categoryFilterVariation === "v1" && category !== undefined) {
         if (category !== "beans" && category !== "gear") {
           res.status(400).json({ error: "unknown category" });
           return;
         }
-        res.json({ products: products.filter((p) => p.category === category) });
-        trackEvent("enable-category-filter-products-loaded", req.sessionId);
-        return;
+        list = products.filter((p) => p.category === category);
       }
-      res.json({ products });
+      const sort = req.query.sort;
+      if (sort !== undefined) {
+        if (sort !== "price-asc" && sort !== "price-desc") {
+          res.status(400).json({ error: "unknown sort" });
+          return;
+        }
+        const direction = sort === "price-asc" ? 1 : -1;
+        list = [...list].sort((a, b) => direction * (a.priceCents - b.priceCents));
+      }
+      res.json({ products: list });
       trackEvent("enable-category-filter-products-loaded", req.sessionId);
     } catch (err) {
       trackEvent("enable-category-filter-error", req.sessionId);

@@ -33,6 +33,23 @@ describe("products", () => {
   it("does not reject unknown categories on the control path", async () => {
     await agent().get("/api/products?category=snacks").expect(200);
   });
+
+  it("sorts by price ascending", async () => {
+    const res = await agent().get("/api/products?sort=price-asc").expect(200);
+    const prices = res.body.products.map((p: { priceCents: number }) => p.priceCents);
+    expect(prices).toEqual([...prices].sort((a, b) => a - b));
+    expect(prices[0]).toBe(Math.min(...prices));
+  });
+
+  it("sorts by price descending", async () => {
+    const res = await agent().get("/api/products?sort=price-desc").expect(200);
+    const prices = res.body.products.map((p: { priceCents: number }) => p.priceCents);
+    expect(prices).toEqual([...prices].sort((a, b) => b - a));
+  });
+
+  it("rejects an unknown sort", async () => {
+    await agent().get("/api/products?sort=alphabetical").expect(400);
+  });
 });
 
 describe("cart", () => {
