@@ -6,9 +6,10 @@ import cookieParser from "cookie-parser";
 import { products, getProduct } from "./catalog.js";
 import { addToCart, removeFromCart, clearCart, viewCart } from "./cart.js";
 import { placeOrder, getOrder } from "./orders.js";
-import { isEnabled } from "./flags.js";
+import { isEnabled, getVariation } from "./flags.js";
 
 const SESSION_COOKIE = "shopfront_session";
+const CATEGORY_FILTER_FLAG = "enable-category-filter";
 
 declare global {
   namespace Express {
@@ -39,16 +40,19 @@ export function createApp(): express.Express {
 
   app.get("/api/storefront", async (req, res) => {
     const showPromoBanner = await isEnabled("show-promo-banner", req.sessionId);
+    const categoryFilter = (await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
       promoBanner: showPromoBanner ? "Free shipping on orders over $40 this week." : null,
+      categoryFilter,
     });
   });
 
-  app.get("/api/products", (req, res) => {
+  app.get("/api/products", async (req, res) => {
+    const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
     const category = req.query.category;
-    if (category !== undefined) {
+    if (categoryFilterVariation === "v1" && category !== undefined) {
       if (category !== "beans" && category !== "gear") {
         res.status(400).json({ error: "unknown category" });
         return;

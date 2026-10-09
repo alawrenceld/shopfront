@@ -22,14 +22,16 @@ describe("products", () => {
     await agent().get("/api/products/nope").expect(404);
   });
 
-  it("filters the catalog by category", async () => {
+  // enable-category-filter defaults to "control" when flags are unconfigured:
+  // the category param is ignored and the full catalog is returned (pre-PR behavior).
+  it("ignores the category param on the control path", async () => {
+    const all = await agent().get("/api/products").expect(200);
     const res = await agent().get("/api/products?category=gear").expect(200);
-    expect(res.body.products.length).toBeGreaterThan(0);
-    expect(res.body.products.every((p: { category: string }) => p.category === "gear")).toBe(true);
+    expect(res.body.products).toEqual(all.body.products);
   });
 
-  it("rejects an unknown category", async () => {
-    await agent().get("/api/products?category=snacks").expect(400);
+  it("does not reject unknown categories on the control path", async () => {
+    await agent().get("/api/products?category=snacks").expect(200);
   });
 });
 

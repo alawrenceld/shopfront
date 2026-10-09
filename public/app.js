@@ -17,6 +17,10 @@ async function loadStorefront() {
     promo.textContent = info.promoBanner;
     promo.hidden = false;
   }
+  // enable-category-filter: server sends categoryFilter = (variation === "v1")
+  if (info.categoryFilter === true) {
+    document.getElementById("filters").hidden = false;
+  }
 }
 
 async function loadProducts(category = "") {

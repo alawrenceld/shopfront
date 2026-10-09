@@ -50,6 +50,10 @@ main {
   margin-bottom: 1rem;
 }
 
+.filters[hidden] {
+  display: none;
+}
+
 .filter {
   background: #fff;
   color: #2b2118;
