@@ -21,6 +21,16 @@ describe("products", () => {
   it("404s on an unknown product", async () => {
     await agent().get("/api/products/nope").expect(404);
   });
+
+  it("filters the catalog by category", async () => {
+    const res = await agent().get("/api/products?category=gear").expect(200);
+    expect(res.body.products.length).toBeGreaterThan(0);
+    expect(res.body.products.every((p: { category: string }) => p.category === "gear")).toBe(true);
+  });
+
+  it("rejects an unknown category", async () => {
+    await agent().get("/api/products?category=snacks").expect(400);
+  });
 });
 
 describe("cart", () => {

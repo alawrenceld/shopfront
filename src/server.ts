@@ -46,7 +46,16 @@ export function createApp(): express.Express {
     });
   });
 
-  app.get("/api/products", (_req, res) => {
+  app.get("/api/products", (req, res) => {
+    const category = req.query.category;
+    if (category !== undefined) {
+      if (category !== "beans" && category !== "gear") {
+        res.status(400).json({ error: "unknown category" });
+        return;
+      }
+      res.json({ products: products.filter((p) => p.category === category) });
+      return;
+    }
     res.json({ products });
   });
 
