@@ -1,0 +1,99 @@
+# Drop this into your app repo at .github/workflows/auto-factory.yml
+#
+# Phase 1 runs on every PR (opened/updated) by default. To make it label-gated
+# instead — only PRs carrying the `autofactory` label run (e.g. feature PRs, not
+# docs/chores) — set the repository variable AUTOFACTORY_REQUIRE_LABEL=true
+# (Settings → Secrets and variables → Actions → Variables). Unset = every PR.
+#
+# The agent chain runs on the Anthropic API by default. The
+# auto-factory-ai-provider flag in the factory project selects the backend; it
+# is optional and defaults to "anthropic" when absent. With flag creation and
+# code changes enabled, the agents create a real flag (targeting off), wire it
+# into the code, instrument metrics, add tests, and push to the PR branch.
+#
+# Per-step approval gates (optional): the auto-factory-approval-gates flag (an
+# array of agent node keys) pauses the chain before those steps. The run halts
+# and comments which label to add (af-approve:<step>); the `labeled` trigger
+# below makes adding that label re-run the chain so it proceeds past the gate
+# (with AUTOFACTORY_REQUIRE_LABEL, keep `autofactory` on the PR so the job matches).
+#
+# Providers: this drop-in form works for the 'anthropic' (default), 'bedrock',
+# and 'vega' backends. The 'cursor' backend can't run here — its @cursor/sdk
+# dependency needs node_modules, which a bare `uses:` action doesn't have. To run
+# 'cursor', use the checkout + `npm ci` + run-the-bundle workflow variant and add
+# the cursor_api_key.
+#
+# Bedrock: serve 'bedrock' from the auto-factory-ai-provider flag, then supply AWS
+# credentials with Bedrock model access — either add to the `with:` block:
+#   aws_region:            us-east-1
+#   aws_access_key_id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+#   aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+# or insert an aws-actions/configure-aws-credentials OIDC step before this one
+# (then only aws_region is needed, or nothing if that step sets AWS_REGION).
+# anthropic_api_key can be omitted when running on Bedrock.
+
+name: LaunchDarkly Auto-Factory
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: write        # agents commit flag wiring, metrics, and tests to the PR branch
+  pull-requests: write   # post the summary comment
+  checks: write          # post the approval-gate status as a check run
+
+jobs:
+  auto-factory:
+    runs-on: ubuntu-latest
+    # CI-loop guard (secondary — the primary guard is `[skip ci]` on agent
+    # commits), plus the OPTIONAL label gate: when the repo variable
+    # AUTOFACTORY_REQUIRE_LABEL is 'true', only `autofactory`-labeled PRs run.
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      (vars.AUTOFACTORY_REQUIRE_LABEL != 'true' ||
+       contains(github.event.pull_request.labels.*.name, 'autofactory'))
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the PR's head branch (not the detached merge ref) so the
+          # agents can commit and push back to the PR.
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      # Optional: the knowledge graph (auto-factory-knowledge-graph flag) uses
+      # ld-find-code-refs at the PR SHA for flag→code wrap-point edges. Without
+      # the binary the run still succeeds — it just warns and skips that source.
+      - name: Install ld-find-code-refs (knowledge-graph wrap points)
+        continue-on-error: true
+        run: |
+          curl -fsSL https://github.com/launchdarkly/ld-find-code-refs/releases/download/v2.14.0/ld-find-code-refs_2.14.0_linux_amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin ld-find-code-refs
+
+      - name: LaunchDarkly Auto-Factory Phase 1
+        # Replace <owner> with the org or user hosting the auto-factory repo.
+        uses: launchdarkly-labs/launchdarkly-auto-factory/packages/phase1-resource-factory@main
+        with:
+          ld_sdk_key: ${{ secrets.LD_SDK_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          ld_app_project_key: ${{ vars.LD_APP_PROJECT_KEY }}   # e.g. autofactory-demo
+          ld_api_key: ${{ secrets.LD_API_KEY }}
+          # Optional: Jev pre-classification (auto-factory-jev-mode flag; shadow by default).
+          typesafe_api_key: ${{ secrets.TYPESAFE_API_KEY }}
+          enable_flag_creation: "true"   # create real flags/metrics in the app project
+          enable_code_changes: "true"    # commit wiring + tests to the PR branch
+          pr_branch: ${{ github.event.pull_request.head.ref }}
+          pr_base: ${{ github.event.pull_request.base.ref }}
+          graph_key: gha-auto-factory
+          # Approvals are controlled by the auto-factory-approval-mode /
+          # -risk-threshold / -approval-gates flags in the factory project.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          # Surface for provider/model targeting in LaunchDarkly (ADR 0018):
+          # GHA runs 50/50 anthropic/cursor by default. The action defaults
+          # this value too; set explicitly so workflow copies stay honest.
+          AUTOFACTORY_SURFACE: github-action
+          # Optional: token able to read PRIVATE repos registered under relatedRepos
+          # in .autofactory/services.yaml (cross-repo research). GITHUB_TOKEN covers
+          # public/same-repo reads without this.
+          AUTOFACTORY_REPOS_TOKEN: ${{ secrets.AUTOFACTORY_REPOS_TOKEN }}
