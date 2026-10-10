@@ -29,7 +29,17 @@ async function loadStorefront() {
   if (info.discountCodes === true) {
     document.getElementById("discount").hidden = false;
   }
+  // enable-cart-quantity-editing: server sends cartQuantityEditing = (variation === "v1").
+  // renderCart() runs concurrently on page load, so re-render once we learn the
+  // treatment is on; on control nothing changes (no extra render).
+  if (info.cartQuantityEditing === true) {
+    flagState.cartQuantityEditing = true;
+    await renderCart();
+  }
 }
+
+// Flag state learned from /api/storefront; defaults are the control experience.
+const flagState = { cartQuantityEditing: false };
 
 const listState = { category: "", sort: "" };
 
@@ -71,7 +81,32 @@ async function renderCart() {
       const row = document.createElement("div");
       row.className = "cart-line";
       const label = document.createElement("span");
-      label.textContent = `${line.quantity} × ${line.name}`;
+      // enable-cart-quantity-editing: only "v1" gets the steppers + name-only label.
+      const quantityEditing = flagState.cartQuantityEditing === true;
+      let qty = null;
+      if (quantityEditing) {
+        label.textContent = line.name;
+        qty = document.createElement("span");
+        qty.className = "qty-controls";
+        const setQty = async (quantity) => {
+          await api(`/api/cart/${line.productId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ quantity }),
+          });
+          await renderCart();
+        };
+        const minus = document.createElement("button");
+        minus.textContent = "−";
+        minus.addEventListener("click", () => setQty(line.quantity - 1));
+        const count = document.createElement("span");
+        count.textContent = line.quantity;
+        const plus = document.createElement("button");
+        plus.textContent = "+";
+        plus.addEventListener("click", () => setQty(line.quantity + 1));
+        qty.append(minus, count, plus);
+      } else {
+        label.textContent = `${line.quantity} × ${line.name}`;
+      }
       const right = document.createElement("span");
       right.textContent = fmt(line.lineTotalCents);
       const remove = document.createElement("button");
@@ -81,7 +116,11 @@ async function renderCart() {
         await renderCart();
       });
       right.append(remove);
-      row.append(label, right);
+      if (quantityEditing) {
+        row.append(label, qty, right);
+      } else {
+        row.append(label, right);
+      }
       return row;
     }),
   );

@@ -28,6 +28,19 @@ export function addToCart(sessionId: string, productId: string, quantity: number
   return lines;
 }
 
+export function setQuantity(sessionId: string, productId: string, quantity: number): CartLine[] {
+  if (quantity === 0) return removeFromCart(sessionId, productId);
+  const lines = carts.get(sessionId) ?? [];
+  const existing = lines.find((l) => l.productId === productId);
+  if (existing) {
+    existing.quantity = quantity;
+  } else {
+    lines.push({ productId, quantity });
+  }
+  carts.set(sessionId, lines);
+  return lines;
+}
+
 export function removeFromCart(sessionId: string, productId: string): CartLine[] {
   const lines = (carts.get(sessionId) ?? []).filter((l) => l.productId !== productId);
   carts.set(sessionId, lines);

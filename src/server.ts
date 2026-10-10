@@ -4,7 +4,7 @@ import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import { products, getProduct } from "./catalog.js";
-import { addToCart, removeFromCart, clearCart, viewCart } from "./cart.js";
+import { addToCart, removeFromCart, setQuantity, clearCart, viewCart } from "./cart.js";
 import { placeOrder, getOrder } from "./orders.js";
 import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
@@ -12,6 +12,7 @@ const SESSION_COOKIE = "shopfront_session";
 const CATEGORY_FILTER_FLAG = "enable-category-filter";
 const PRICE_SORT_FLAG = "enable-price-sort";
 const DISCOUNT_CODES_FLAG = "enable-discount-codes";
+const CART_QUANTITY_EDITING_FLAG = "enable-cart-quantity-editing";
 
 // Percentage-off discount codes, applied to the cart subtotal at checkout.
 const DISCOUNT_CODES: Record<string, number> = {
@@ -50,6 +51,8 @@ export function createApp(): express.Express {
     const categoryFilter = (await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control")) === "v1";
     const priceSort = (await getVariation(PRICE_SORT_FLAG, req.sessionId, "control")) === "v1";
     const discountCodes = (await getVariation(DISCOUNT_CODES_FLAG, req.sessionId, "control")) === "v1";
+    const cartQuantityEditing =
+      (await getVariation(CART_QUANTITY_EDITING_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
@@ -57,6 +60,7 @@ export function createApp(): express.Express {
       categoryFilter,
       priceSort,
       discountCodes,
+      cartQuantityEditing,
     });
   });
 
@@ -130,6 +134,41 @@ export function createApp(): express.Express {
     }
     addToCart(req.sessionId, productId, qty);
     res.json(viewCart(req.sessionId));
+  });
+
+  app.patch("/api/cart/:productId", async (req, res) => {
+    // Guarded-release telemetry for enable-cart-quantity-editing: error and
+    // latency are emitted on BOTH the control and v1 paths (same session context
+    // as the flag) so the release can compare them. trackEvent never throws.
+    const startedAt = performance.now();
+    try {
+      // enable-cart-quantity-editing: only the "v1" variation exposes this route.
+      // On control (or any other value) it behaves as if it does not exist — a
+      // 404 before any validation, cart untouched — which is pre-PR behavior.
+      const variation = await getVariation(CART_QUANTITY_EDITING_FLAG, req.sessionId, "control");
+      if (variation !== "v1") {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      const { quantity } = req.body ?? {};
+      if (!getProduct(req.params.productId)) {
+        res.status(400).json({ error: "unknown productId" });
+        return;
+      }
+      if (!Number.isInteger(quantity) || quantity < 0 || quantity > 99) {
+        res.status(400).json({ error: "quantity must be between 0 and 99" });
+        return;
+      }
+      setQuantity(req.sessionId, req.params.productId, quantity);
+      res.json(viewCart(req.sessionId));
+      trackEvent("enable-cart-quantity-editing-quantity-updated", req.sessionId);
+    } catch (err) {
+      trackEvent("enable-cart-quantity-editing-error", req.sessionId);
+      throw err;
+    } finally {
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-cart-quantity-editing-latency", req.sessionId, elapsedMs);
+    }
   });
 
   app.delete("/api/cart/:productId", (req, res) => {
