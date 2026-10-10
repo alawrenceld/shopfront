@@ -107,6 +107,37 @@ describe("checkout", () => {
     const order = await session.get(`/api/orders/${checkout.body.order.id}`).expect(200);
     expect(order.body.order.id).toBe(checkout.body.order.id);
   });
+
+  // enable-discount-codes defaults to "control" when flags are unconfigured:
+  // discountCode is ignored entirely and orders are placed at full price (pre-PR behavior).
+  // The v1 (discount applied) path is covered in tests/discount-codes.test.ts.
+  it("ignores a valid discount code on the control path", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-kettle" }).expect(200);
+    const checkout = await session
+      .post("/api/checkout")
+      .send({ discountCode: "SAVE10" })
+      .expect(201);
+    expect(checkout.body.order.totalCents).toBe(5400);
+    expect(checkout.body.order.discountCents).toBe(0);
+    expect(checkout.body.order.discountCode).toBeUndefined();
+  });
+
+  it("does not reject an unknown discount code on the control path", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "beans-colombia" }).expect(200);
+    await session.post("/api/checkout").send({ discountCode: "NOTACODE" }).expect(201);
+    const cart = await session.get("/api/cart").expect(200);
+    expect(cart.body.lines).toEqual([]);
+  });
+
+  it("places an undiscounted order when no code is given", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-kettle" }).expect(200);
+    const checkout = await session.post("/api/checkout").expect(201);
+    expect(checkout.body.order.discountCents).toBe(0);
+    expect(checkout.body.order.totalCents).toBe(checkout.body.order.subtotalCents);
+  });
 });
 
 describe("storefront", () => {
@@ -115,5 +146,6 @@ describe("storefront", () => {
     expect(res.body.name).toBe("Shopfront");
     expect(res.body.promoBanner).toBeNull();
     expect(res.body.priceSort).toBe(false);
+    expect(res.body.discountCodes).toBe(false);
   });
 });

@@ -11,6 +11,12 @@ import { isEnabled, getVariation, trackEvent } from "./flags.js";
 const SESSION_COOKIE = "shopfront_session";
 const CATEGORY_FILTER_FLAG = "enable-category-filter";
 const PRICE_SORT_FLAG = "enable-price-sort";
+const DISCOUNT_CODES_FLAG = "enable-discount-codes";
+
+// Percentage-off discount codes, applied to the cart subtotal at checkout.
+const DISCOUNT_CODES: Record<string, number> = {
+  SAVE10: 0.1,
+};
 
 declare global {
   namespace Express {
@@ -43,12 +49,14 @@ export function createApp(): express.Express {
     const showPromoBanner = await isEnabled("show-promo-banner", req.sessionId);
     const categoryFilter = (await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control")) === "v1";
     const priceSort = (await getVariation(PRICE_SORT_FLAG, req.sessionId, "control")) === "v1";
+    const discountCodes = (await getVariation(DISCOUNT_CODES_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
       promoBanner: showPromoBanner ? "Free shipping on orders over $40 this week." : null,
       categoryFilter,
       priceSort,
+      discountCodes,
     });
   });
 
@@ -129,15 +137,47 @@ export function createApp(): express.Express {
     res.json(viewCart(req.sessionId));
   });
 
-  app.post("/api/checkout", (req, res) => {
-    const cart = viewCart(req.sessionId);
-    if (cart.lines.length === 0) {
-      res.status(400).json({ error: "cart is empty" });
-      return;
+  app.post("/api/checkout", async (req, res) => {
+    // Guarded-release telemetry for enable-discount-codes: emitted on BOTH the
+    // control and v1 paths (same session context as the flag) so the release
+    // can compare them. trackEvent never throws; behavior is unchanged.
+    const startedAt = performance.now();
+    try {
+      const cart = viewCart(req.sessionId);
+      if (cart.lines.length === 0) {
+        res.status(400).json({ error: "cart is empty" });
+        return;
+      }
+      // enable-discount-codes: only the "v1" variation honors discountCode; on
+      // control (or any other value) the field is ignored entirely (no validation,
+      // no 400) and the order is placed at full price — pre-PR behavior.
+      const discountCodesVariation = await getVariation(DISCOUNT_CODES_FLAG, req.sessionId, "control");
+      const { discountCode } = req.body ?? {};
+      let discount;
+      if (discountCodesVariation === "v1" && discountCode !== undefined && discountCode !== "") {
+        if (typeof discountCode !== "string") {
+          res.status(400).json({ error: "invalid discount code" });
+          return;
+        }
+        const code = discountCode.trim().toUpperCase();
+        const rate = DISCOUNT_CODES[code];
+        if (rate === undefined) {
+          res.status(400).json({ error: "invalid discount code" });
+          return;
+        }
+        discount = { code, discountCents: Math.round(cart.totalCents * rate) };
+      }
+      const order = placeOrder(cart, discount);
+      clearCart(req.sessionId);
+      res.status(201).json({ order });
+      trackEvent("enable-discount-codes-order-placed", req.sessionId);
+    } catch (err) {
+      trackEvent("enable-discount-codes-error", req.sessionId);
+      throw err;
+    } finally {
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-discount-codes-latency", req.sessionId, elapsedMs);
     }
-    const order = placeOrder(cart);
-    clearCart(req.sessionId);
-    res.status(201).json({ order });
   });
 
   app.get("/api/orders/:id", (req, res) => {

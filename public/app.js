@@ -25,6 +25,10 @@ async function loadStorefront() {
   if (info.priceSort === true) {
     document.querySelector(".sort-row").hidden = false;
   }
+  // enable-discount-codes: server sends discountCodes = (variation === "v1")
+  if (info.discountCodes === true) {
+    document.getElementById("discount").hidden = false;
+  }
 }
 
 const listState = { category: "", sort: "" };
@@ -89,11 +93,22 @@ async function renderCart() {
 }
 
 document.getElementById("checkout").addEventListener("click", async () => {
-  const { order } = await api("/api/checkout", { method: "POST" });
   const result = document.getElementById("order-result");
-  result.textContent = `Order placed: ${order.id} — ${fmt(order.totalCents)}`;
+  const discountInput = document.getElementById("discount");
+  const discountCode = discountInput.value.trim();
+  try {
+    const { order } = await api("/api/checkout", {
+      method: "POST",
+      body: JSON.stringify(discountCode ? { discountCode } : {}),
+    });
+    const savings = order.discountCents > 0 ? ` (saved ${fmt(order.discountCents)})` : "";
+    result.textContent = `Order placed: ${order.id} — ${fmt(order.totalCents)}${savings}`;
+    discountInput.value = "";
+    await renderCart();
+  } catch (err) {
+    result.textContent = err.message;
+  }
   result.hidden = false;
-  await renderCart();
 });
 
 document.getElementById("filters").addEventListener("click", async (event) => {
