@@ -25,6 +25,10 @@ async function loadStorefront() {
   if (info.priceSort === true) {
     document.querySelector(".sort-row").hidden = false;
   }
+  // enable-discount-codes: server sends discountCodes = (variation === "v1")
+  if (info.discountCodes === true) {
+    document.getElementById("discount").hidden = false;
+  }
 }
 
 const listState = { category: "", sort: "" };
