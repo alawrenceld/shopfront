@@ -62,12 +62,24 @@ async function loadProducts() {
       price.className = "price";
       price.textContent = fmt(p.priceCents);
       const btn = document.createElement("button");
-      btn.textContent = "Add to cart";
-      btn.addEventListener("click", async () => {
-        await api("/api/cart", { method: "POST", body: JSON.stringify({ productId: p.id }) });
-        await renderCart();
-      });
-      card.append(title, desc, price, btn);
+      if (p.stock === 0) {
+        btn.textContent = "Out of stock";
+        btn.disabled = true;
+      } else {
+        btn.textContent = "Add to cart";
+        btn.addEventListener("click", async () => {
+          await api("/api/cart", { method: "POST", body: JSON.stringify({ productId: p.id }) });
+          await renderCart();
+        });
+      }
+      card.append(title, desc, price);
+      if (p.stock > 0 && p.stock <= 3) {
+        const low = document.createElement("span");
+        low.className = "low-stock";
+        low.textContent = `Only ${p.stock} left`;
+        card.append(low);
+      }
+      card.append(btn);
       return card;
     }),
   );

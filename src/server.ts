@@ -4,7 +4,8 @@ import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import { products, getProduct } from "./catalog.js";
-import { addToCart, removeFromCart, setQuantity, clearCart, viewCart } from "./cart.js";
+import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart } from "./cart.js";
+import { remainingStock, commitOrder } from "./inventory.js";
 import { placeOrder, getOrder } from "./orders.js";
 import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
@@ -92,7 +93,7 @@ export function createApp(): express.Express {
         const direction = sort === "price-asc" ? 1 : -1;
         list = [...list].sort((a, b) => direction * (a.priceCents - b.priceCents));
       }
-      res.json({ products: list });
+      res.json({ products: list.map((p) => ({ ...p, stock: remainingStock(p.id) })) });
       trackEvent("enable-category-filter-products-loaded", req.sessionId);
       // Guarded-release telemetry for enable-price-sort: emitted on BOTH the
       // control and v1 paths so the release can compare them. Never throws.
@@ -114,7 +115,7 @@ export function createApp(): express.Express {
       res.status(404).json({ error: "product not found" });
       return;
     }
-    res.json({ product });
+    res.json({ product: { ...product, stock: remainingStock(product.id) } });
   });
 
   app.get("/api/cart", (req, res) => {
@@ -130,6 +131,11 @@ export function createApp(): express.Express {
     }
     if (qty < 1 || qty > 99) {
       res.status(400).json({ error: "quantity must be between 1 and 99" });
+      return;
+    }
+    const inCart = getCart(req.sessionId).find((l) => l.productId === productId)?.quantity ?? 0;
+    if (inCart + qty > remainingStock(productId)) {
+      res.status(400).json({ error: "insufficient stock" });
       return;
     }
     addToCart(req.sessionId, productId, qty);
@@ -157,6 +163,10 @@ export function createApp(): express.Express {
       }
       if (!Number.isInteger(quantity) || quantity < 0 || quantity > 99) {
         res.status(400).json({ error: "quantity must be between 0 and 99" });
+        return;
+      }
+      if (quantity > remainingStock(req.params.productId)) {
+        res.status(400).json({ error: "insufficient stock" });
         return;
       }
       setQuantity(req.sessionId, req.params.productId, quantity);
@@ -205,6 +215,11 @@ export function createApp(): express.Express {
           return;
         }
         discount = { code, discountCents: Math.round(cart.totalCents * rate) };
+      }
+      const shortages = commitOrder(cart.lines);
+      if (shortages.length > 0) {
+        res.status(409).json({ error: "insufficient stock", shortages });
+        return;
       }
       const order = placeOrder(cart, discount);
       clearCart(req.sessionId);
