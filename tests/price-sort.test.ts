@@ -19,9 +19,13 @@ vi.mock("../src/flags.js", () => ({
 }));
 
 import { createApp } from "../src/server.js";
-import { products } from "../src/catalog.js";
+import { products as catalog } from "../src/catalog.js";
 
 const FLAG = "enable-price-sort";
+
+// The public product shape: with enable-inventory-tracking on control (the
+// default here), the API omits the catalog's `stock` field.
+const products = catalog.map(({ stock: _stock, ...p }) => p);
 const CATEGORY_FLAG = "enable-category-filter";
 
 type Product = (typeof products)[number];
@@ -123,10 +127,10 @@ describe("enable-price-sort: GET /api/products", () => {
     });
 
     it("does not mutate the shared catalog when sorting", async () => {
-      const before = products.map((p) => p.id);
+      const before = catalog.map((p) => p.id);
       await agent().get("/api/products?sort=price-desc").expect(200);
       await agent().get("/api/products?sort=price-asc").expect(200);
-      expect(products.map((p) => p.id)).toEqual(before);
+      expect(catalog.map((p) => p.id)).toEqual(before);
       const res = await agent().get("/api/products").expect(200);
       expect(res.body.products).toEqual(products);
     });

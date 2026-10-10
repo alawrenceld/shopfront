@@ -3,8 +3,9 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import cookieParser from "cookie-parser";
-import { products, getProduct } from "./catalog.js";
-import { addToCart, removeFromCart, setQuantity, clearCart, viewCart } from "./cart.js";
+import { products, getProduct, type Product } from "./catalog.js";
+import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart } from "./cart.js";
+import { remainingStock, commitOrder } from "./inventory.js";
 import { placeOrder, getOrder } from "./orders.js";
 import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
@@ -13,6 +14,21 @@ const CATEGORY_FILTER_FLAG = "enable-category-filter";
 const PRICE_SORT_FLAG = "enable-price-sort";
 const DISCOUNT_CODES_FLAG = "enable-discount-codes";
 const CART_QUANTITY_EDITING_FLAG = "enable-cart-quantity-editing";
+const INVENTORY_TRACKING_FLAG = "enable-inventory-tracking";
+
+/**
+ * enable-inventory-tracking: shape a product for the API. Only the "v1"
+ * variation reports `stock` (the live remaining stock). On control (or any
+ * other value) the catalog's `stock` field is stripped so responses match the
+ * pre-PR contract exactly.
+ */
+function toApiProduct(product: Product, inventoryVariation: string): Omit<Product, "stock"> & { stock?: number } {
+  if (inventoryVariation === "v1") {
+    return { ...product, stock: remainingStock(product.id) };
+  }
+  const { stock: _stock, ...rest } = product;
+  return rest;
+}
 
 // Percentage-off discount codes, applied to the cart subtotal at checkout.
 const DISCOUNT_CODES: Record<string, number> = {
@@ -53,6 +69,8 @@ export function createApp(): express.Express {
     const discountCodes = (await getVariation(DISCOUNT_CODES_FLAG, req.sessionId, "control")) === "v1";
     const cartQuantityEditing =
       (await getVariation(CART_QUANTITY_EDITING_FLAG, req.sessionId, "control")) === "v1";
+    const inventoryTracking =
+      (await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
@@ -61,6 +79,7 @@ export function createApp(): express.Express {
       priceSort,
       discountCodes,
       cartQuantityEditing,
+      inventoryTracking,
     });
   });
 
@@ -72,6 +91,7 @@ export function createApp(): express.Express {
     try {
       const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
       const priceSortVariation = await getVariation(PRICE_SORT_FLAG, req.sessionId, "control");
+      const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
       const category = req.query.category;
       let list = products;
       if (categoryFilterVariation === "v1" && category !== undefined) {
@@ -92,7 +112,7 @@ export function createApp(): express.Express {
         const direction = sort === "price-asc" ? 1 : -1;
         list = [...list].sort((a, b) => direction * (a.priceCents - b.priceCents));
       }
-      res.json({ products: list });
+      res.json({ products: list.map((p) => toApiProduct(p, inventoryVariation)) });
       trackEvent("enable-category-filter-products-loaded", req.sessionId);
       // Guarded-release telemetry for enable-price-sort: emitted on BOTH the
       // control and v1 paths so the release can compare them. Never throws.
@@ -100,6 +120,8 @@ export function createApp(): express.Express {
     } catch (err) {
       trackEvent("enable-category-filter-error", req.sessionId);
       trackEvent("enable-price-sort-error", req.sessionId);
+      // enable-inventory-tracking shapes every product (toApiProduct) on both arms.
+      trackEvent("enable-inventory-tracking-error", req.sessionId);
       throw err;
     } finally {
       const elapsedMs = performance.now() - startedAt;
@@ -108,20 +130,21 @@ export function createApp(): express.Express {
     }
   });
 
-  app.get("/api/products/:id", (req, res) => {
+  app.get("/api/products/:id", async (req, res) => {
     const product = getProduct(req.params.id);
     if (!product) {
       res.status(404).json({ error: "product not found" });
       return;
     }
-    res.json({ product });
+    const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
+    res.json({ product: toApiProduct(product, inventoryVariation) });
   });
 
   app.get("/api/cart", (req, res) => {
     res.json(viewCart(req.sessionId));
   });
 
-  app.post("/api/cart", (req, res) => {
+  app.post("/api/cart", async (req, res) => {
     const { productId, quantity } = req.body ?? {};
     const qty = Number.isInteger(quantity) ? (quantity as number) : 1;
     if (typeof productId !== "string" || !getProduct(productId)) {
@@ -131,6 +154,16 @@ export function createApp(): express.Express {
     if (qty < 1 || qty > 99) {
       res.status(400).json({ error: "quantity must be between 1 and 99" });
       return;
+    }
+    // enable-inventory-tracking: only "v1" validates against remaining stock;
+    // control adds without any stock check (pre-PR behavior).
+    const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
+    if (inventoryVariation === "v1") {
+      const inCart = getCart(req.sessionId).find((l) => l.productId === productId)?.quantity ?? 0;
+      if (inCart + qty > remainingStock(productId)) {
+        res.status(400).json({ error: "insufficient stock" });
+        return;
+      }
     }
     addToCart(req.sessionId, productId, qty);
     res.json(viewCart(req.sessionId));
@@ -157,6 +190,13 @@ export function createApp(): express.Express {
       }
       if (!Number.isInteger(quantity) || quantity < 0 || quantity > 99) {
         res.status(400).json({ error: "quantity must be between 0 and 99" });
+        return;
+      }
+      // enable-inventory-tracking: evaluated independently of quantity editing;
+      // only "v1" caps the new quantity at remaining stock.
+      const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
+      if (inventoryVariation === "v1" && quantity > remainingStock(req.params.productId)) {
+        res.status(400).json({ error: "insufficient stock" });
         return;
       }
       setQuantity(req.sessionId, req.params.productId, quantity);
@@ -206,16 +246,32 @@ export function createApp(): express.Express {
         }
         discount = { code, discountCents: Math.round(cart.totalCents * rate) };
       }
+      // enable-inventory-tracking: only "v1" commits the order against stock
+      // (409 + shortages on oversell, nothing decremented). Control never reads
+      // or decrements stock and goes straight to placeOrder (pre-PR behavior).
+      const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
+      if (inventoryVariation === "v1") {
+        const shortages = commitOrder(cart.lines);
+        if (shortages.length > 0) {
+          res.status(409).json({ error: "insufficient stock", shortages });
+          return;
+        }
+      }
       const order = placeOrder(cart, discount);
       clearCart(req.sessionId);
       res.status(201).json({ order });
       trackEvent("enable-discount-codes-order-placed", req.sessionId);
+      // Guarded-release telemetry for enable-inventory-tracking: emitted on BOTH
+      // the control and v1 paths so the release can compare them. Never throws.
+      trackEvent("enable-inventory-tracking-order-placed", req.sessionId);
     } catch (err) {
       trackEvent("enable-discount-codes-error", req.sessionId);
+      trackEvent("enable-inventory-tracking-error", req.sessionId);
       throw err;
     } finally {
       const elapsedMs = performance.now() - startedAt;
       trackEvent("enable-discount-codes-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-inventory-tracking-latency", req.sessionId, elapsedMs);
     }
   });
 

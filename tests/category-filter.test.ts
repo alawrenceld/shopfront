@@ -18,9 +18,13 @@ vi.mock("../src/flags.js", () => ({
 }));
 
 import { createApp } from "../src/server.js";
-import { products } from "../src/catalog.js";
+import { products as catalog } from "../src/catalog.js";
 
 const FLAG = "enable-category-filter";
+
+// The public product shape: with enable-inventory-tracking on control (the
+// default here), the API omits the catalog's `stock` field.
+const products = catalog.map(({ stock: _stock, ...p }) => p);
 
 function agent() {
   return request.agent(createApp());

@@ -119,6 +119,11 @@ button {
 
 button:disabled { opacity: 0.4; cursor: default; }
 
+.low-stock {
+  font-size: 0.8rem;
+  color: #a35b00;
+}
+
 .cart-line {
   display: flex;
   justify-content: space-between;

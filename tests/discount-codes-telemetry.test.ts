@@ -49,8 +49,12 @@ function setVariation(value: string) {
   );
 }
 
+// Scoped to this flag's events: other flags (e.g. enable-inventory-tracking)
+// emit their own telemetry from the same checkout handler.
 function eventKeys(): string[] {
-  return mocks.trackEvent.mock.calls.map((c) => c[0] as string);
+  return mocks.trackEvent.mock.calls
+    .map((c) => c[0] as string)
+    .filter((k) => k.startsWith("enable-discount-codes-"));
 }
 
 function checkoutEvents(): unknown[][] {
