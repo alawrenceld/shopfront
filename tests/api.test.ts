@@ -74,33 +74,22 @@ describe("cart", () => {
     await session.post("/api/cart").send({ productId: "gear-v60", quantity: 0 }).expect(400);
   });
 
-  it("sets a line's quantity directly", async () => {
+  // enable-cart-quantity-editing is unconfigured here, so it evaluates to
+  // "control": the PATCH route behaves as if it does not exist (pre-PR).
+  // v1 behavior is covered in tests/cart-quantity-editing.test.ts.
+  it("control: PATCH quantity returns 404 and leaves the cart untouched", async () => {
     const session = agent();
     await session.post("/api/cart").send({ productId: "gear-v60" }).expect(200);
-    const res = await session
-      .patch("/api/cart/gear-v60")
-      .send({ quantity: 5 })
-      .expect(200);
-    expect(res.body.lines[0].quantity).toBe(5);
-    expect(res.body.totalCents).toBe(5 * 2800);
+    await session.patch("/api/cart/gear-v60").send({ quantity: 5 }).expect(404);
+    await session.patch("/api/cart/gear-v60").send({ quantity: 100 }).expect(404);
+    await session.patch("/api/cart/nope").send({ quantity: 2 }).expect(404);
+    const cart = await session.get("/api/cart").expect(200);
+    expect(cart.body.lines[0].quantity).toBe(1);
   });
 
-  it("removes a line when quantity is set to zero", async () => {
-    const session = agent();
-    await session.post("/api/cart").send({ productId: "gear-v60" }).expect(200);
-    const res = await session
-      .patch("/api/cart/gear-v60")
-      .send({ quantity: 0 })
-      .expect(200);
-    expect(res.body.lines).toEqual([]);
-  });
-
-  it("rejects invalid quantity updates", async () => {
-    const session = agent();
-    await session.post("/api/cart").send({ productId: "gear-v60" }).expect(200);
-    await session.patch("/api/cart/gear-v60").send({ quantity: 100 }).expect(400);
-    await session.patch("/api/cart/gear-v60").send({ quantity: 1.5 }).expect(400);
-    await session.patch("/api/cart/nope").send({ quantity: 2 }).expect(400);
+  it("control: storefront reports cartQuantityEditing false", async () => {
+    const res = await agent().get("/api/storefront").expect(200);
+    expect(res.body.cartQuantityEditing).toBe(false);
   });
 
   it("removes items", async () => {
