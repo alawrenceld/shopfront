@@ -36,10 +36,17 @@ async function loadStorefront() {
     flagState.cartQuantityEditing = true;
     await renderCart();
   }
+  // enable-inventory-tracking: server sends inventoryTracking = (variation === "v1").
+  // loadProducts() runs concurrently on page load, so re-render once we learn the
+  // treatment is on; on control nothing changes (no extra render).
+  if (info.inventoryTracking === true) {
+    flagState.inventoryTracking = true;
+    await loadProducts();
+  }
 }
 
 // Flag state learned from /api/storefront; defaults are the control experience.
-const flagState = { cartQuantityEditing: false };
+const flagState = { cartQuantityEditing: false, inventoryTracking: false };
 
 const listState = { category: "", sort: "" };
 
@@ -62,7 +69,10 @@ async function loadProducts() {
       price.className = "price";
       price.textContent = fmt(p.priceCents);
       const btn = document.createElement("button");
-      if (p.stock === 0) {
+      // enable-inventory-tracking: only "v1" renders stock UI (the server also
+      // omits `stock` on control, so this is belt-and-braces).
+      const inventoryTracking = flagState.inventoryTracking === true && typeof p.stock === "number";
+      if (inventoryTracking && p.stock === 0) {
         btn.textContent = "Out of stock";
         btn.disabled = true;
       } else {
@@ -73,7 +83,7 @@ async function loadProducts() {
         });
       }
       card.append(title, desc, price);
-      if (p.stock > 0 && p.stock <= 3) {
+      if (inventoryTracking && p.stock > 0 && p.stock <= 3) {
         const low = document.createElement("span");
         low.className = "low-stock";
         low.textContent = `Only ${p.stock} left`;
