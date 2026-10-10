@@ -120,6 +120,8 @@ export function createApp(): express.Express {
     } catch (err) {
       trackEvent("enable-category-filter-error", req.sessionId);
       trackEvent("enable-price-sort-error", req.sessionId);
+      // enable-inventory-tracking shapes every product (toApiProduct) on both arms.
+      trackEvent("enable-inventory-tracking-error", req.sessionId);
       throw err;
     } finally {
       const elapsedMs = performance.now() - startedAt;
@@ -259,12 +261,17 @@ export function createApp(): express.Express {
       clearCart(req.sessionId);
       res.status(201).json({ order });
       trackEvent("enable-discount-codes-order-placed", req.sessionId);
+      // Guarded-release telemetry for enable-inventory-tracking: emitted on BOTH
+      // the control and v1 paths so the release can compare them. Never throws.
+      trackEvent("enable-inventory-tracking-order-placed", req.sessionId);
     } catch (err) {
       trackEvent("enable-discount-codes-error", req.sessionId);
+      trackEvent("enable-inventory-tracking-error", req.sessionId);
       throw err;
     } finally {
       const elapsedMs = performance.now() - startedAt;
       trackEvent("enable-discount-codes-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-inventory-tracking-latency", req.sessionId, elapsedMs);
     }
   });
 
