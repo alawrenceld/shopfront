@@ -16,6 +16,7 @@ const PRICE_SORT_FLAG = "enable-price-sort";
 const DISCOUNT_CODES_FLAG = "enable-discount-codes";
 const CART_QUANTITY_EDITING_FLAG = "enable-cart-quantity-editing";
 const INVENTORY_TRACKING_FLAG = "enable-inventory-tracking";
+const SUPPLIER_STOCK_VERIFICATION_FLAG = "enable-supplier-stock-verification";
 
 /**
  * enable-inventory-tracking: shape a product for the API. Only the "v1"
@@ -247,17 +248,26 @@ export function createApp(): express.Express {
         }
         discount = { code, discountCents: Math.round(cart.totalCents * rate) };
       }
-      try {
-        await verifyStockWithSupplier(cart.lines);
-      } catch (err) {
-        if (err instanceof SupplierTimeoutError) {
-          res.status(503).json({
-            error: "could not verify stock with the supplier — please try again",
-            productId: err.productId,
-          });
-          return;
+      // enable-supplier-stock-verification: only "v1" verifies each cart line
+      // against the supplier feed and fails closed with a 503 (nothing
+      // decremented, cart kept) on a supplier timeout. Control (or any other
+      // value) never calls the supplier and goes straight on (pre-PR behavior).
+      const supplierVariation = await getVariation(SUPPLIER_STOCK_VERIFICATION_FLAG, req.sessionId, "control");
+      if (supplierVariation === "v1") {
+        try {
+          await verifyStockWithSupplier(cart.lines);
+        } catch (err) {
+          if (err instanceof SupplierTimeoutError) {
+            // A fail-closed refusal is an error for this flag's guardrail.
+            trackEvent("enable-supplier-stock-verification-error", req.sessionId);
+            res.status(503).json({
+              error: "could not verify stock with the supplier — please try again",
+              productId: err.productId,
+            });
+            return;
+          }
+          throw err;
         }
-        throw err;
       }
       // enable-inventory-tracking: only "v1" commits the order against stock
       // (409 + shortages on oversell, nothing decremented). Control never reads
@@ -277,14 +287,19 @@ export function createApp(): express.Express {
       // Guarded-release telemetry for enable-inventory-tracking: emitted on BOTH
       // the control and v1 paths so the release can compare them. Never throws.
       trackEvent("enable-inventory-tracking-order-placed", req.sessionId);
+      // Guarded-release telemetry for enable-supplier-stock-verification: emitted
+      // on BOTH the control and v1 paths so the release can compare them.
+      trackEvent("enable-supplier-stock-verification-order-placed", req.sessionId);
     } catch (err) {
       trackEvent("enable-discount-codes-error", req.sessionId);
       trackEvent("enable-inventory-tracking-error", req.sessionId);
+      trackEvent("enable-supplier-stock-verification-error", req.sessionId);
       throw err;
     } finally {
       const elapsedMs = performance.now() - startedAt;
       trackEvent("enable-discount-codes-latency", req.sessionId, elapsedMs);
       trackEvent("enable-inventory-tracking-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-supplier-stock-verification-latency", req.sessionId, elapsedMs);
     }
   });
 

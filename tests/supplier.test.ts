@@ -1,7 +1,31 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/server.js";
 import { verifyStockWithSupplier, SupplierTimeoutError } from "../src/supplier.js";
+
+// Checkout's supplier verification is gated by `enable-supplier-stock-verification`
+// (string multivariate: "control" | "v1"). Flags are mocked so each test pins the arm.
+const mocks = vi.hoisted(() => ({
+  getVariation: vi.fn(),
+  isEnabled: vi.fn(),
+  trackEvent: vi.fn(),
+}));
+
+vi.mock("../src/flags.js", () => ({
+  getVariation: mocks.getVariation,
+  isEnabled: mocks.isEnabled,
+  trackEvent: mocks.trackEvent,
+  contextForSession: (sessionId: string) => ({ kind: "user", key: sessionId }),
+  closeFlags: async () => {},
+}));
+
+const FLAG = "enable-supplier-stock-verification";
+
+function setVariations(variations: Record<string, string>) {
+  mocks.getVariation.mockImplementation(async (key: string, _sessionId: string, fallback = "control") =>
+    key in variations ? variations[key] : fallback,
+  );
+}
 
 function agent() {
   return request.agent(createApp());
@@ -12,9 +36,22 @@ const savedEnv = {
   timeout: process.env.SUPPLIER_VERIFY_TIMEOUT_MS,
 };
 
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+beforeEach(() => {
+  mocks.getVariation.mockReset();
+  mocks.isEnabled.mockReset();
+  mocks.trackEvent.mockReset();
+  mocks.isEnabled.mockResolvedValue(false);
+  setVariations({ [FLAG]: "v1" });
+});
+
 afterEach(() => {
-  process.env.SUPPLIER_VERIFY_DELAY_MS = savedEnv.delay;
-  process.env.SUPPLIER_VERIFY_TIMEOUT_MS = savedEnv.timeout;
+  restoreEnv("SUPPLIER_VERIFY_DELAY_MS", savedEnv.delay);
+  restoreEnv("SUPPLIER_VERIFY_TIMEOUT_MS", savedEnv.timeout);
 });
 
 describe("supplier stock verification", () => {
@@ -32,13 +69,13 @@ describe("supplier stock verification", () => {
     ).rejects.toBeInstanceOf(SupplierTimeoutError);
   });
 
-  it("checkout still succeeds when verification passes", async () => {
+  it("v1: checkout still succeeds when verification passes", async () => {
     const session = agent();
     await session.post("/api/cart").send({ productId: "gear-filters" }).expect(200);
     await session.post("/api/checkout").expect(201);
   });
 
-  it("checkout fails closed with a 503 and keeps the cart when verification times out", async () => {
+  it("v1: checkout fails closed with a 503 and keeps the cart when verification times out", async () => {
     const session = agent();
     await session.post("/api/cart").send({ productId: "gear-filters" }).expect(200);
 
@@ -52,5 +89,15 @@ describe("supplier stock verification", () => {
     process.env.SUPPLIER_VERIFY_TIMEOUT_MS = "1000";
     const cart = await session.get("/api/cart").expect(200);
     expect(cart.body.lines).toHaveLength(1);
+  });
+
+  it("control: checkout never consults the supplier (succeeds even when it would time out)", async () => {
+    setVariations({ [FLAG]: "control" });
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-filters" }).expect(200);
+
+    process.env.SUPPLIER_VERIFY_DELAY_MS = "10";
+    process.env.SUPPLIER_VERIFY_TIMEOUT_MS = "0";
+    await session.post("/api/checkout").expect(201);
   });
 });
