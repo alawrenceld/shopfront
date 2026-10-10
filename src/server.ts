@@ -155,16 +155,21 @@ export function createApp(): express.Express {
       // Guarded-release telemetry for enable-price-sort: emitted on BOTH the
       // control and v1 paths so the release can compare them. Never throws.
       trackEvent("enable-price-sort-products-loaded", req.sessionId);
+      // Guarded-release telemetry for enable-product-search: emitted on BOTH the
+      // control and v1 paths so the release can compare them. Never throws.
+      trackEvent("enable-product-search-products-loaded", req.sessionId);
     } catch (err) {
       trackEvent("enable-category-filter-error", req.sessionId);
       trackEvent("enable-price-sort-error", req.sessionId);
       // enable-inventory-tracking shapes every product (toApiProduct) on both arms.
       trackEvent("enable-inventory-tracking-error", req.sessionId);
+      trackEvent("enable-product-search-error", req.sessionId);
       throw err;
     } finally {
       const elapsedMs = performance.now() - startedAt;
       trackEvent("enable-category-filter-latency", req.sessionId, elapsedMs);
       trackEvent("enable-price-sort-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-product-search-latency", req.sessionId, elapsedMs);
     }
   });
 

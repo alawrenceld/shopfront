@@ -187,6 +187,30 @@ describe("GET /api/products?q=", () => {
     expect(res.body.productSearch).toBe(true);
   });
 
+  describe("guarded-release telemetry (enable-product-search)", () => {
+    const events = (key: string) => mocks.trackEvent.mock.calls.filter(([k]) => k === key);
+
+    for (const variation of ["v1", "control"]) {
+      it(`emits products-loaded and latency on ${variation}`, async () => {
+        setVariations({ [SEARCH_FLAG]: variation });
+        await agent().get("/api/products?q=kettle").expect(200);
+        expect(events("enable-product-search-products-loaded")).toHaveLength(1);
+        const latency = events("enable-product-search-latency");
+        expect(latency).toHaveLength(1);
+        expect(typeof latency[0][2]).toBe("number");
+        expect(events("enable-product-search-error")).toHaveLength(0);
+        const flagSession = mocks.getVariation.mock.calls.find(([k]) => k === SEARCH_FLAG)?.[1];
+        expect(latency[0][1]).toBe(flagSession);
+      });
+    }
+
+    it("emits latency but not products-loaded on a v1 400", async () => {
+      await agent().get("/api/products?q=a&q=b").expect(400);
+      expect(events("enable-product-search-products-loaded")).toHaveLength(0);
+      expect(events("enable-product-search-latency")).toHaveLength(1);
+    });
+  });
+
   it("combines search, category filter, and price sort", async () => {
     setVariations({ [CATEGORY_FLAG]: "v1", [PRICE_SORT_FLAG]: "v1" });
     const res = await agent().get("/api/products?category=gear&q=E&sort=price-desc").expect(200);
