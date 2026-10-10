@@ -60,6 +60,27 @@ main {
   border: 1px solid #e4dcd2;
 }
 
+.sort-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.sort-row[hidden] {
+  display: none;
+}
+
+.sort-row select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e4dcd2;
+  border-radius: 6px;
+  background: #fff;
+  color: #2b2118;
+}
+
 .filter.active {
   background: #2b2118;
   color: #faf6f1;

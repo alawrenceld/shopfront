@@ -22,6 +22,14 @@
         <button class="filter" data-category="beans">Beans</button>
         <button class="filter" data-category="gear">Gear</button>
       </div>
+      <div class="sort-row" hidden>
+        <label for="sort">Sort</label>
+        <select id="sort">
+          <option value="">Featured</option>
+          <option value="price-asc">Price: low to high</option>
+          <option value="price-desc">Price: high to low</option>
+        </select>
+      </div>
       <div id="products" class="grid"></div>
     </section>
     <aside>

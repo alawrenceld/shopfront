@@ -10,6 +10,7 @@ import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
 const SESSION_COOKIE = "shopfront_session";
 const CATEGORY_FILTER_FLAG = "enable-category-filter";
+const PRICE_SORT_FLAG = "enable-price-sort";
 
 declare global {
   namespace Express {
@@ -41,11 +42,13 @@ export function createApp(): express.Express {
   app.get("/api/storefront", async (req, res) => {
     const showPromoBanner = await isEnabled("show-promo-banner", req.sessionId);
     const categoryFilter = (await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control")) === "v1";
+    const priceSort = (await getVariation(PRICE_SORT_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
       promoBanner: showPromoBanner ? "Free shipping on orders over $40 this week." : null,
       categoryFilter,
+      priceSort,
     });
   });
 
@@ -56,23 +59,40 @@ export function createApp(): express.Express {
     const startedAt = performance.now();
     try {
       const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
+      const priceSortVariation = await getVariation(PRICE_SORT_FLAG, req.sessionId, "control");
       const category = req.query.category;
+      let list = products;
       if (categoryFilterVariation === "v1" && category !== undefined) {
         if (category !== "beans" && category !== "gear") {
           res.status(400).json({ error: "unknown category" });
           return;
         }
-        res.json({ products: products.filter((p) => p.category === category) });
-        trackEvent("enable-category-filter-products-loaded", req.sessionId);
-        return;
+        list = products.filter((p) => p.category === category);
       }
-      res.json({ products });
+      // enable-price-sort: only the "v1" variation honors ?sort=; on control the
+      // param is ignored entirely (no validation, no 400) — pre-PR behavior.
+      const sort = req.query.sort;
+      if (priceSortVariation === "v1" && sort !== undefined) {
+        if (sort !== "price-asc" && sort !== "price-desc") {
+          res.status(400).json({ error: "unknown sort" });
+          return;
+        }
+        const direction = sort === "price-asc" ? 1 : -1;
+        list = [...list].sort((a, b) => direction * (a.priceCents - b.priceCents));
+      }
+      res.json({ products: list });
       trackEvent("enable-category-filter-products-loaded", req.sessionId);
+      // Guarded-release telemetry for enable-price-sort: emitted on BOTH the
+      // control and v1 paths so the release can compare them. Never throws.
+      trackEvent("enable-price-sort-products-loaded", req.sessionId);
     } catch (err) {
       trackEvent("enable-category-filter-error", req.sessionId);
+      trackEvent("enable-price-sort-error", req.sessionId);
       throw err;
     } finally {
-      trackEvent("enable-category-filter-latency", req.sessionId, performance.now() - startedAt);
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-category-filter-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-price-sort-latency", req.sessionId, elapsedMs);
     }
   });
 
