@@ -138,33 +138,46 @@ export function createApp(): express.Express {
   });
 
   app.post("/api/checkout", async (req, res) => {
-    const cart = viewCart(req.sessionId);
-    if (cart.lines.length === 0) {
-      res.status(400).json({ error: "cart is empty" });
-      return;
-    }
-    // enable-discount-codes: only the "v1" variation honors discountCode; on
-    // control (or any other value) the field is ignored entirely (no validation,
-    // no 400) and the order is placed at full price — pre-PR behavior.
-    const discountCodesVariation = await getVariation(DISCOUNT_CODES_FLAG, req.sessionId, "control");
-    const { discountCode } = req.body ?? {};
-    let discount;
-    if (discountCodesVariation === "v1" && discountCode !== undefined && discountCode !== "") {
-      if (typeof discountCode !== "string") {
-        res.status(400).json({ error: "invalid discount code" });
+    // Guarded-release telemetry for enable-discount-codes: emitted on BOTH the
+    // control and v1 paths (same session context as the flag) so the release
+    // can compare them. trackEvent never throws; behavior is unchanged.
+    const startedAt = performance.now();
+    try {
+      const cart = viewCart(req.sessionId);
+      if (cart.lines.length === 0) {
+        res.status(400).json({ error: "cart is empty" });
         return;
       }
-      const code = discountCode.trim().toUpperCase();
-      const rate = DISCOUNT_CODES[code];
-      if (rate === undefined) {
-        res.status(400).json({ error: "invalid discount code" });
-        return;
+      // enable-discount-codes: only the "v1" variation honors discountCode; on
+      // control (or any other value) the field is ignored entirely (no validation,
+      // no 400) and the order is placed at full price — pre-PR behavior.
+      const discountCodesVariation = await getVariation(DISCOUNT_CODES_FLAG, req.sessionId, "control");
+      const { discountCode } = req.body ?? {};
+      let discount;
+      if (discountCodesVariation === "v1" && discountCode !== undefined && discountCode !== "") {
+        if (typeof discountCode !== "string") {
+          res.status(400).json({ error: "invalid discount code" });
+          return;
+        }
+        const code = discountCode.trim().toUpperCase();
+        const rate = DISCOUNT_CODES[code];
+        if (rate === undefined) {
+          res.status(400).json({ error: "invalid discount code" });
+          return;
+        }
+        discount = { code, discountCents: Math.round(cart.totalCents * rate) };
       }
-      discount = { code, discountCents: Math.round(cart.totalCents * rate) };
+      const order = placeOrder(cart, discount);
+      clearCart(req.sessionId);
+      res.status(201).json({ order });
+      trackEvent("enable-discount-codes-order-placed", req.sessionId);
+    } catch (err) {
+      trackEvent("enable-discount-codes-error", req.sessionId);
+      throw err;
+    } finally {
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-discount-codes-latency", req.sessionId, elapsedMs);
     }
-    const order = placeOrder(cart, discount);
-    clearCart(req.sessionId);
-    res.status(201).json({ order });
   });
 
   app.get("/api/orders/:id", (req, res) => {

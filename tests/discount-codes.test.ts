@@ -113,6 +113,20 @@ describe("enable-discount-codes: POST /api/checkout", () => {
     });
   });
 
+  it("emits guarded-release events on both control and v1", async () => {
+    for (const variation of ["control", "v1"]) {
+      mocks.trackEvent.mockReset();
+      setVariation(variation);
+      const session = agent();
+      await session.post("/api/cart").send({ productId: "gear-kettle" }).expect(200);
+      await session.post("/api/checkout").send({ discountCode: "SAVE10" }).expect(201);
+      const keys = mocks.trackEvent.mock.calls.map((c) => c[0]);
+      expect(keys).toContain("enable-discount-codes-order-placed");
+      expect(keys).toContain("enable-discount-codes-latency");
+      expect(keys).not.toContain("enable-discount-codes-error");
+    }
+  });
+
   it("an unexpected variation behaves like control", async () => {
     setVariation("v2");
     const session = agent();
