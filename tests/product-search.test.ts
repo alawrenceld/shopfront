@@ -22,6 +22,7 @@ import { products as catalog, searchByName } from "../src/catalog.js";
 
 const CATEGORY_FLAG = "enable-category-filter";
 const PRICE_SORT_FLAG = "enable-price-sort";
+const SEARCH_FLAG = "enable-product-search";
 
 // The public product shape: with enable-inventory-tracking on control (the
 // default here), the API omits the catalog's `stock` field.
@@ -31,9 +32,12 @@ function agent() {
   return request.agent(createApp());
 }
 
+// Search is gated behind enable-product-search; these tests exercise the "v1"
+// treatment unless a test explicitly overrides the flag (see the control block).
 function setVariations(variations: Record<string, string>) {
+  const all: Record<string, string> = { [SEARCH_FLAG]: "v1", ...variations };
   mocks.getVariation.mockImplementation(async (key: string, _sessionId: string, fallback = "control") =>
-    key in variations ? variations[key] : fallback,
+    key in all ? all[key] : fallback,
   );
 }
 
@@ -157,6 +161,30 @@ describe("GET /api/products?q=", () => {
       const res = await agent().get("/api/products?q=e&sort=price-desc").expect(200);
       expect(res.body.products).toEqual([...matching()].sort((a, b) => b.priceCents - a.priceCents));
     });
+  });
+
+  describe("enable-product-search control (flag off / fallback)", () => {
+    beforeEach(() => setVariations({ [SEARCH_FLAG]: "control" }));
+
+    it("ignores ?q= and returns the full catalog", async () => {
+      const res = await agent().get("/api/products?q=matcha").expect(200);
+      expect(res.body.products).toEqual(products);
+    });
+
+    it("does not 400 on a repeated q param", async () => {
+      const res = await agent().get("/api/products?q=kettle&q=dripper").expect(200);
+      expect(res.body.products).toEqual(products);
+    });
+
+    it("reports productSearch false on /api/storefront", async () => {
+      const res = await agent().get("/api/storefront").expect(200);
+      expect(res.body.productSearch).toBe(false);
+    });
+  });
+
+  it("reports productSearch true on /api/storefront for v1", async () => {
+    const res = await agent().get("/api/storefront").expect(200);
+    expect(res.body.productSearch).toBe(true);
   });
 
   it("combines search, category filter, and price sort", async () => {

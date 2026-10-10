@@ -17,6 +17,7 @@ const DISCOUNT_CODES_FLAG = "enable-discount-codes";
 const CART_QUANTITY_EDITING_FLAG = "enable-cart-quantity-editing";
 const INVENTORY_TRACKING_FLAG = "enable-inventory-tracking";
 const SUPPLIER_STOCK_VERIFICATION_FLAG = "enable-supplier-stock-verification";
+const PRODUCT_SEARCH_FLAG = "enable-product-search";
 
 /**
  * enable-inventory-tracking: shape a product for the API. Only the "v1"
@@ -92,6 +93,7 @@ export function createApp(): express.Express {
       (await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control")) === "v1";
     const supplierStockVerification =
       (await getVariation(SUPPLIER_STOCK_VERIFICATION_FLAG, req.sessionId, "control")) === "v1";
+    const productSearch = (await getVariation(PRODUCT_SEARCH_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
@@ -102,6 +104,7 @@ export function createApp(): express.Express {
       cartQuantityEditing,
       inventoryTracking,
       supplierStockVerification,
+      productSearch,
     });
   });
 
@@ -114,6 +117,7 @@ export function createApp(): express.Express {
       const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
       const priceSortVariation = await getVariation(PRICE_SORT_FLAG, req.sessionId, "control");
       const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
+      const productSearchVariation = await getVariation(PRODUCT_SEARCH_FLAG, req.sessionId, "control");
       const category = req.query.category;
       let list = products;
       if (categoryFilterVariation === "v1" && category !== undefined) {
@@ -123,10 +127,12 @@ export function createApp(): express.Express {
         }
         list = products.filter((p) => p.category === category);
       }
-      // Name search: ?q= narrows to products whose name contains the query
-      // (case-insensitive, trimmed). Empty/whitespace-only matches everything.
+      // enable-product-search: only the "v1" variation honors ?q= — narrowing to
+      // products whose name contains the query (case-insensitive, trimmed;
+      // empty/whitespace-only matches everything). On control the param is
+      // ignored entirely (no validation, no 400) — pre-PR behavior.
       const q = req.query.q;
-      if (q !== undefined) {
+      if (productSearchVariation === "v1" && q !== undefined) {
         if (typeof q !== "string") {
           res.status(400).json({ error: "invalid search query" });
           return;

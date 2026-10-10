@@ -48,10 +48,21 @@ async function loadStorefront() {
   if (info.supplierStockVerification === true) {
     flagState.supplierStockVerification = true;
   }
+  // enable-product-search: server sends productSearch = (variation === "v1").
+  // Only v1 shows the search box and the no-results message.
+  if (info.productSearch === true) {
+    flagState.productSearch = true;
+    document.getElementById("search-form").hidden = false;
+  }
 }
 
 // Flag state learned from /api/storefront; defaults are the control experience.
-const flagState = { cartQuantityEditing: false, inventoryTracking: false, supplierStockVerification: false };
+const flagState = {
+  cartQuantityEditing: false,
+  inventoryTracking: false,
+  supplierStockVerification: false,
+  productSearch: false,
+};
 
 const listState = { category: "", sort: "", q: "" };
 
@@ -63,7 +74,9 @@ async function loadProducts() {
   const qs = params.toString();
   const { products } = await api(qs ? `/api/products?${qs}` : "/api/products");
   const grid = document.getElementById("products");
-  document.getElementById("no-results").hidden = products.length > 0;
+  // enable-product-search: the no-results message is v1-only (control stays
+  // pixel-identical to pre-PR behavior).
+  document.getElementById("no-results").hidden = !(flagState.productSearch === true && products.length === 0);
   grid.replaceChildren(
     ...products.map((p) => {
       const card = document.createElement("div");
