@@ -11,11 +11,16 @@
     <div class="header-inner">
       <h1>Shopfront</h1>
       <p class="tagline" id="tagline"></p>
+      <nav class="main-nav" id="main-nav" hidden>
+        <a href="#products" data-view="products">Products</a>
+        <a href="#wishlist" data-view="wishlist">Wishlist (<span id="wishlist-count">0</span>)</a>
+      </nav>
     </div>
   </header>
   <div id="promo" class="promo" hidden></div>
+  <div id="wishlist-message" class="wishlist-message" role="alert" hidden></div>
   <main>
-    <section>
+    <section id="products-view">
       <h2>Products</h2>
       <form class="search-row" id="search-form" role="search" hidden>
         <label for="search">Search</label>
@@ -36,6 +41,13 @@
       </div>
       <div id="products" class="grid"></div>
       <p id="no-results" class="no-results" hidden>No products match your search.</p>
+    </section>
+    <section id="wishlist-view" hidden>
+      <h2>Wishlist</h2>
+      <div id="wishlist-items" class="wishlist-items"></div>
+      <p id="wishlist-empty" class="no-results" hidden>
+        Your wishlist is empty — save something you love from the <a href="#products">products</a>.
+      </p>
     </section>
     <aside>
       <h2>Cart</h2>

@@ -109,7 +109,7 @@ async function loadProducts() {
         low.textContent = `Only ${p.stock} left`;
         card.append(low);
       }
-      card.append(btn);
+      card.append(btn, createSaveButton(p.id));
       return card;
     }),
   );
@@ -172,6 +172,138 @@ async function renderCart() {
   el.append(total);
   document.getElementById("checkout").disabled = cart.lines.length === 0;
 }
+
+// Wishlist: saved product IDs and items for this session, as last reported by
+// /api/wishlist. `available` stays false while the API answers 404 (the route
+// is not served for this session), in which case no wishlist UI is shown.
+const wishlistState = { available: false, ids: new Set(), items: [] };
+
+function showWishlistMessage(text) {
+  const el = document.getElementById("wishlist-message");
+  el.textContent = text;
+  el.hidden = false;
+}
+
+function clearWishlistMessage() {
+  const el = document.getElementById("wishlist-message");
+  el.textContent = "";
+  el.hidden = true;
+}
+
+function createSaveButton(productId) {
+  const btn = document.createElement("button");
+  btn.className = "save-btn";
+  btn.dataset.productId = productId;
+  btn.addEventListener("click", () => toggleWishlist(productId));
+  syncSaveButton(btn);
+  return btn;
+}
+
+function syncSaveButton(btn) {
+  const saved = wishlistState.ids.has(btn.dataset.productId);
+  btn.hidden = !wishlistState.available;
+  btn.classList.toggle("saved", saved);
+  btn.setAttribute("aria-pressed", String(saved));
+  btn.textContent = saved ? "♥ Saved" : "♡ Save";
+}
+
+/** Apply a wishlist response to every view: listing buttons, nav count, wishlist view. */
+function applyWishlist(view) {
+  wishlistState.available = true;
+  wishlistState.items = view.items;
+  wishlistState.ids = new Set(view.items.map((i) => i.productId));
+  document.getElementById("main-nav").hidden = false;
+  document.getElementById("wishlist-count").textContent = view.items.length;
+  document.querySelectorAll(".save-btn").forEach(syncSaveButton);
+  renderWishlist();
+}
+
+async function loadWishlist() {
+  let res;
+  try {
+    res = await fetch("/api/wishlist");
+  } catch {
+    showWishlistMessage("Could not load your wishlist. Please try again.");
+    return;
+  }
+  // 404: the wishlist is not served for this session — keep its UI hidden.
+  if (res.status === 404) return;
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    showWishlistMessage(body.error ?? "Could not load your wishlist. Please try again.");
+    return;
+  }
+  applyWishlist(await res.json());
+  showView();
+}
+
+async function toggleWishlist(productId) {
+  const saved = wishlistState.ids.has(productId);
+  try {
+    const view = saved
+      ? await api(`/api/wishlist/${encodeURIComponent(productId)}`, { method: "DELETE" })
+      : await api("/api/wishlist", { method: "POST", body: JSON.stringify({ productId }) });
+    clearWishlistMessage();
+    applyWishlist(view);
+  } catch (err) {
+    showWishlistMessage(`Could not update your wishlist: ${err.message}`);
+  }
+}
+
+function renderWishlist() {
+  const items = wishlistState.items;
+  document.getElementById("wishlist-empty").hidden = items.length > 0;
+  document.getElementById("wishlist-items").replaceChildren(
+    ...items.map((item) => {
+      const row = document.createElement("div");
+      row.className = "wishlist-item";
+      const name = document.createElement("span");
+      name.className = "wishlist-name";
+      name.textContent = item.name;
+      const price = document.createElement("span");
+      price.className = "price";
+      price.textContent = fmt(item.priceCents);
+      const availability = document.createElement("span");
+      availability.className = item.inStock ? "availability" : "availability out";
+      availability.textContent = item.inStock ? "In stock" : "Out of stock";
+      const addToCart = document.createElement("button");
+      addToCart.textContent = "Add to cart";
+      addToCart.disabled = !item.inStock;
+      addToCart.addEventListener("click", async () => {
+        // Uses the regular cart endpoint (and its stock checks); the item stays
+        // in the wishlist.
+        try {
+          await api("/api/cart", { method: "POST", body: JSON.stringify({ productId: item.productId }) });
+          clearWishlistMessage();
+        } catch (err) {
+          showWishlistMessage(`Could not add ${item.name} to your cart: ${err.message}`);
+        }
+        await renderCart();
+      });
+      const remove = document.createElement("button");
+      remove.className = "wishlist-remove";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => toggleWishlist(item.productId));
+      const actions = document.createElement("span");
+      actions.className = "wishlist-actions";
+      actions.append(addToCart, remove);
+      row.append(name, price, availability, actions);
+      return row;
+    }),
+  );
+}
+
+/** Show the view named by the URL hash (#wishlist), defaulting to products. */
+function showView() {
+  const wishlist = wishlistState.available && location.hash === "#wishlist";
+  document.getElementById("products-view").hidden = wishlist;
+  document.getElementById("wishlist-view").hidden = !wishlist;
+  document.querySelectorAll(".main-nav a").forEach((a) => {
+    a.classList.toggle("active", a.dataset.view === (wishlist ? "wishlist" : "products"));
+  });
+}
+
+window.addEventListener("hashchange", showView);
 
 document.getElementById("checkout").addEventListener("click", async () => {
   const result = document.getElementById("order-result");
@@ -240,3 +372,4 @@ document.getElementById("search-form").addEventListener("submit", async (event) 
 loadStorefront();
 loadProducts();
 renderCart();
+loadWishlist();

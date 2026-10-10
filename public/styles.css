@@ -151,6 +151,90 @@ button {
 
 button:disabled { opacity: 0.4; cursor: default; }
 
+.main-nav {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.main-nav[hidden] {
+  display: none;
+}
+
+.main-nav a {
+  color: #faf6f1;
+  opacity: 0.75;
+  text-decoration: none;
+}
+
+.main-nav a.active {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.wishlist-message {
+  max-width: 960px;
+  margin: 1rem auto 0;
+  padding: 0.75rem 1rem;
+  background: #fbe9e7;
+  border: 1px solid #e6b3ab;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.wishlist-message[hidden] {
+  display: none;
+}
+
+.save-btn {
+  background: #fff;
+  color: #2b2118;
+  border: 1px solid #e4dcd2;
+}
+
+.save-btn.saved {
+  color: #a33;
+  border-color: #e6b3ab;
+}
+
+.wishlist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wishlist-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  background: #fff;
+  border: 1px solid #e4dcd2;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.wishlist-name { flex: 1; font-weight: 600; }
+
+.availability {
+  font-size: 0.8rem;
+  color: #3b7a2a;
+}
+
+.availability.out { color: #a35b00; }
+
+.wishlist-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+
+.wishlist-remove {
+  background: transparent;
+  color: #a33;
+  border: 1px solid #e6b3ab;
+}
+
 .low-stock {
   font-size: 0.8rem;
   color: #a35b00;
