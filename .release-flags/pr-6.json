@@ -8,7 +8,8 @@
       "enable-supplier-stock-verification-latency",
       "enable-supplier-stock-verification-order-placed"
     ],
-    "randomizationUnit": "user"
+    "randomizationUnit": "user",
+    "notes": "Rework 2 (reviewer R01): v1 checkout now holds a per-session in-flight slot (second concurrent checkout -> 409, no duplicate order/stock decrement) and re-reads the cart after supplier verification (changed cart -> 409, nothing ordered, cart kept). Checkout button disabled in flight on v1 only (storefront exposes supplierStockVerification). Supplier env values validated (non-finite/negative/blank -> defaults); default timeout lowered 600 -> 500ms so retry/503 path is reachable; lines verified in parallel (total wait ~2x timeout). The v1-only 409s emit no error event (consistent with inventory 409). Metrics still lack the flag- reference tag in LaunchDarkly (manual follow-up)."
   },
   "releaseIntent": {
     "_instructions": "Human approver: edit freely. action: auto (release on deploy) | hold (do not release yet) | manual (a human runs the release). Structured fields execute; anything else goes in notes (an agent will structure it on the PR for your review). Blank fields = default auto-release on deploy. prerequisites: [{\"flagKey\": \"flag-xyz\", \"variation\": \"on\"}]. notBefore: YYYY-MM-DD. reference: ticket/doc URL.",
