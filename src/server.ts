@@ -7,6 +7,7 @@ import { products, getProduct, searchByName, type Product } from "./catalog.js";
 import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart, type CartLine } from "./cart.js";
 import { remainingStock, commitOrder } from "./inventory.js";
 import { placeOrder, getOrder } from "./orders.js";
+import { addToWishlist, removeFromWishlist, viewWishlist } from "./wishlist.js";
 import { verifyStockWithSupplier, SupplierTimeoutError } from "./supplier.js";
 import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
@@ -257,6 +258,29 @@ export function createApp(): express.Express {
   app.delete("/api/cart/:productId", (req, res) => {
     removeFromCart(req.sessionId, req.params.productId);
     res.json(viewCart(req.sessionId));
+  });
+
+  app.get("/api/wishlist", (req, res) => {
+    res.json(viewWishlist(req.sessionId));
+  });
+
+  app.post("/api/wishlist", (req, res) => {
+    const { productId } = req.body ?? {};
+    if (typeof productId !== "string") {
+      res.status(400).json({ error: "productId is required" });
+      return;
+    }
+    if (!getProduct(productId)) {
+      res.status(404).json({ error: "product not found" });
+      return;
+    }
+    addToWishlist(req.sessionId, productId);
+    res.json(viewWishlist(req.sessionId));
+  });
+
+  app.delete("/api/wishlist/:productId", (req, res) => {
+    removeFromWishlist(req.sessionId, req.params.productId);
+    res.json(viewWishlist(req.sessionId));
   });
 
   app.post("/api/checkout", async (req, res) => {
