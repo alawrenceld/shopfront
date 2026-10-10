@@ -1,11 +1,61 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
+
+// The wishlist routes are gated by `enable-wishlist` (string multivariate:
+// "control" | "v1"). These tests exercise the v1 (treatment) behavior; the
+// flags module is mocked so the server sees "v1" for enable-wishlist and the
+// fail-safe fallback ("control") for every other flag.
+const mocks = vi.hoisted(() => ({
+  getVariation: vi.fn(),
+  isEnabled: vi.fn(),
+  trackEvent: vi.fn(),
+}));
+
+vi.mock("../src/flags.js", () => ({
+  getVariation: mocks.getVariation,
+  isEnabled: mocks.isEnabled,
+  trackEvent: mocks.trackEvent,
+  contextForSession: (sessionId: string) => ({ kind: "user", key: sessionId }),
+  closeFlags: async () => {},
+}));
+
 import { createApp } from "../src/server.js";
 import { remainingStock, commitOrder } from "../src/inventory.js";
+
+const FLAG = "enable-wishlist";
+
+beforeEach(() => {
+  mocks.getVariation.mockReset();
+  mocks.isEnabled.mockReset();
+  mocks.trackEvent.mockReset();
+  mocks.isEnabled.mockResolvedValue(false);
+  mocks.getVariation.mockImplementation(async (key: string, _sessionId: string, fallback = "control") =>
+    key === FLAG ? "v1" : fallback,
+  );
+});
 
 function agent() {
   return request.agent(createApp());
 }
+
+describe("enable-wishlist: control (flag off)", () => {
+  it("404s every wishlist route before validation and leaves the wishlist untouched", async () => {
+    mocks.getVariation.mockImplementation(async (_key: string, _sessionId: string, fallback = "control") => fallback);
+    const session = agent();
+    const get = await session.get("/api/wishlist").expect(404);
+    expect(get.body).toEqual({ error: "not found" });
+    await session.post("/api/wishlist").send({ productId: "gear-kettle" }).expect(404, { error: "not found" });
+    await session.post("/api/wishlist").send({}).expect(404, { error: "not found" });
+    await session.delete("/api/wishlist/gear-kettle").expect(404, { error: "not found" });
+    expect(mocks.getVariation).toHaveBeenCalledWith(FLAG, expect.any(String), "control");
+
+    // Turning the flag on afterwards shows nothing was stored on control.
+    mocks.getVariation.mockImplementation(async (key: string, _s: string, fallback = "control") =>
+      key === FLAG ? "v1" : fallback,
+    );
+    await session.get("/api/wishlist").expect(200, { items: [] });
+  });
+});
 
 describe("wishlist", () => {
   it("starts empty for a new session", async () => {

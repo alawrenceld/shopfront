@@ -19,6 +19,7 @@ const CART_QUANTITY_EDITING_FLAG = "enable-cart-quantity-editing";
 const INVENTORY_TRACKING_FLAG = "enable-inventory-tracking";
 const SUPPLIER_STOCK_VERIFICATION_FLAG = "enable-supplier-stock-verification";
 const PRODUCT_SEARCH_FLAG = "enable-product-search";
+const WISHLIST_FLAG = "enable-wishlist";
 
 /**
  * enable-inventory-tracking: shape a product for the API. Only the "v1"
@@ -260,27 +261,76 @@ export function createApp(): express.Express {
     res.json(viewCart(req.sessionId));
   });
 
-  app.get("/api/wishlist", (req, res) => {
-    res.json(viewWishlist(req.sessionId));
+  // enable-wishlist: only the "v1" variation exposes the /api/wishlist routes.
+  // On control (or any other value) they behave as if they do not exist — a 404
+  // before any validation, wishlist untouched — which is pre-PR behavior.
+  // Guarded-release telemetry (error + latency) is emitted on BOTH the control
+  // and v1 paths, with the same session context as the flag. trackEvent never
+  // throws.
+  app.get("/api/wishlist", async (req, res) => {
+    const startedAt = performance.now();
+    try {
+      const variation = await getVariation(WISHLIST_FLAG, req.sessionId, "control");
+      if (variation !== "v1") {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      res.json(viewWishlist(req.sessionId));
+    } catch (err) {
+      trackEvent("enable-wishlist-error", req.sessionId);
+      throw err;
+    } finally {
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-wishlist-latency", req.sessionId, elapsedMs);
+    }
   });
 
-  app.post("/api/wishlist", (req, res) => {
-    const { productId } = req.body ?? {};
-    if (typeof productId !== "string") {
-      res.status(400).json({ error: "productId is required" });
-      return;
+  app.post("/api/wishlist", async (req, res) => {
+    const startedAt = performance.now();
+    try {
+      const variation = await getVariation(WISHLIST_FLAG, req.sessionId, "control");
+      if (variation !== "v1") {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      const { productId } = req.body ?? {};
+      if (typeof productId !== "string") {
+        res.status(400).json({ error: "productId is required" });
+        return;
+      }
+      if (!getProduct(productId)) {
+        res.status(404).json({ error: "product not found" });
+        return;
+      }
+      addToWishlist(req.sessionId, productId);
+      res.json(viewWishlist(req.sessionId));
+      trackEvent("enable-wishlist-item-added", req.sessionId);
+    } catch (err) {
+      trackEvent("enable-wishlist-error", req.sessionId);
+      throw err;
+    } finally {
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-wishlist-latency", req.sessionId, elapsedMs);
     }
-    if (!getProduct(productId)) {
-      res.status(404).json({ error: "product not found" });
-      return;
-    }
-    addToWishlist(req.sessionId, productId);
-    res.json(viewWishlist(req.sessionId));
   });
 
-  app.delete("/api/wishlist/:productId", (req, res) => {
-    removeFromWishlist(req.sessionId, req.params.productId);
-    res.json(viewWishlist(req.sessionId));
+  app.delete("/api/wishlist/:productId", async (req, res) => {
+    const startedAt = performance.now();
+    try {
+      const variation = await getVariation(WISHLIST_FLAG, req.sessionId, "control");
+      if (variation !== "v1") {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      removeFromWishlist(req.sessionId, req.params.productId);
+      res.json(viewWishlist(req.sessionId));
+    } catch (err) {
+      trackEvent("enable-wishlist-error", req.sessionId);
+      throw err;
+    } finally {
+      const elapsedMs = performance.now() - startedAt;
+      trackEvent("enable-wishlist-latency", req.sessionId, elapsedMs);
+    }
   });
 
   app.post("/api/checkout", async (req, res) => {
