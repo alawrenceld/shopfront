@@ -43,10 +43,15 @@ async function loadStorefront() {
     flagState.inventoryTracking = true;
     await loadProducts();
   }
+  // enable-supplier-stock-verification: server sends supplierStockVerification =
+  // (variation === "v1"). Only v1 disables Checkout while a request is in flight.
+  if (info.supplierStockVerification === true) {
+    flagState.supplierStockVerification = true;
+  }
 }
 
 // Flag state learned from /api/storefront; defaults are the control experience.
-const flagState = { cartQuantityEditing: false, inventoryTracking: false };
+const flagState = { cartQuantityEditing: false, inventoryTracking: false, supplierStockVerification: false };
 
 const listState = { category: "", sort: "" };
 
@@ -157,6 +162,11 @@ document.getElementById("checkout").addEventListener("click", async () => {
   const result = document.getElementById("order-result");
   const discountInput = document.getElementById("discount");
   const discountCode = discountInput.value.trim();
+  // enable-supplier-stock-verification: v1 checkout waits on the supplier, so
+  // block double-submits while it runs. Control leaves the button as before.
+  const checkoutBtn = document.getElementById("checkout");
+  const guardInFlight = flagState.supplierStockVerification === true;
+  if (guardInFlight) checkoutBtn.disabled = true;
   try {
     const { order } = await api("/api/checkout", {
       method: "POST",
@@ -168,6 +178,12 @@ document.getElementById("checkout").addEventListener("click", async () => {
     await renderCart();
   } catch (err) {
     result.textContent = err.message;
+    // v1: re-render so the button re-enables and any cart change is shown.
+    if (guardInFlight) {
+      await renderCart().catch(() => {
+        checkoutBtn.disabled = false;
+      });
+    }
   }
   result.hidden = false;
 });

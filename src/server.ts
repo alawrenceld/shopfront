@@ -4,9 +4,10 @@ import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import { products, getProduct, type Product } from "./catalog.js";
-import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart } from "./cart.js";
+import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart, type CartLine } from "./cart.js";
 import { remainingStock, commitOrder } from "./inventory.js";
 import { placeOrder, getOrder } from "./orders.js";
+import { verifyStockWithSupplier, SupplierTimeoutError } from "./supplier.js";
 import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
 const SESSION_COOKIE = "shopfront_session";
@@ -15,6 +16,7 @@ const PRICE_SORT_FLAG = "enable-price-sort";
 const DISCOUNT_CODES_FLAG = "enable-discount-codes";
 const CART_QUANTITY_EDITING_FLAG = "enable-cart-quantity-editing";
 const INVENTORY_TRACKING_FLAG = "enable-inventory-tracking";
+const SUPPLIER_STOCK_VERIFICATION_FLAG = "enable-supplier-stock-verification";
 
 /**
  * enable-inventory-tracking: shape a product for the API. Only the "v1"
@@ -28,6 +30,16 @@ function toApiProduct(product: Product, inventoryVariation: string): Omit<Produc
   }
   const { stock: _stock, ...rest } = product;
   return rest;
+}
+
+/**
+ * enable-supplier-stock-verification: true when two carts hold exactly the same
+ * product quantities (order-insensitive). Used on "v1" to detect a cart that
+ * changed while checkout was awaiting the supplier.
+ */
+function sameCartLines(a: CartLine[], b: CartLine[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((line) => b.some((other) => other.productId === line.productId && other.quantity === line.quantity));
 }
 
 // Percentage-off discount codes, applied to the cart subtotal at checkout.
@@ -45,6 +57,9 @@ declare global {
 
 export function createApp(): express.Express {
   const app = express();
+  // enable-supplier-stock-verification ("v1" only): sessions with a checkout
+  // currently awaiting supplier verification. Control never touches this.
+  const checkoutsInFlight = new Set<string>();
   app.use(express.json());
   app.use(cookieParser());
 
@@ -71,6 +86,8 @@ export function createApp(): express.Express {
       (await getVariation(CART_QUANTITY_EDITING_FLAG, req.sessionId, "control")) === "v1";
     const inventoryTracking =
       (await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control")) === "v1";
+    const supplierStockVerification =
+      (await getVariation(SUPPLIER_STOCK_VERIFICATION_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
@@ -80,6 +97,7 @@ export function createApp(): express.Express {
       discountCodes,
       cartQuantityEditing,
       inventoryTracking,
+      supplierStockVerification,
     });
   });
 
@@ -221,6 +239,9 @@ export function createApp(): express.Express {
     // control and v1 paths (same session context as the flag) so the release
     // can compare them. trackEvent never throws; behavior is unchanged.
     const startedAt = performance.now();
+    // enable-supplier-stock-verification ("v1" only): set once this request owns
+    // the session's in-flight checkout slot; released in `finally`.
+    let holdsCheckoutSlot = false;
     try {
       const cart = viewCart(req.sessionId);
       if (cart.lines.length === 0) {
@@ -246,10 +267,48 @@ export function createApp(): express.Express {
         }
         discount = { code, discountCents: Math.round(cart.totalCents * rate) };
       }
+      // enable-supplier-stock-verification: only "v1" verifies each cart line
+      // against the supplier feed and fails closed with a 503 (nothing
+      // decremented, cart kept) on a supplier timeout. Control (or any other
+      // value) never calls the supplier and goes straight on (pre-PR behavior).
+      const supplierVariation = await getVariation(SUPPLIER_STOCK_VERIFICATION_FLAG, req.sessionId, "control");
+      if (supplierVariation === "v1") {
+        // Verification is slow, so one checkout per session at a time: a second
+        // request (e.g. a double-click) is refused instead of placing a
+        // duplicate order. Check-and-claim is synchronous, so it is race-free.
+        if (checkoutsInFlight.has(req.sessionId)) {
+          res.status(409).json({ error: "a checkout is already in progress for this cart" });
+          return;
+        }
+        checkoutsInFlight.add(req.sessionId);
+        holdsCheckoutSlot = true;
+        try {
+          await verifyStockWithSupplier(cart.lines);
+        } catch (err) {
+          if (err instanceof SupplierTimeoutError) {
+            // A fail-closed refusal is an error for this flag's guardrail.
+            trackEvent("enable-supplier-stock-verification-error", req.sessionId);
+            res.status(503).json({
+              error: "could not verify stock with the supplier — please try again",
+              productId: err.productId,
+            });
+            return;
+          }
+          throw err;
+        }
+      }
       // enable-inventory-tracking: only "v1" commits the order against stock
       // (409 + shortages on oversell, nothing decremented). Control never reads
       // or decrements stock and goes straight to placeOrder (pre-PR behavior).
       const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
+      // enable-supplier-stock-verification ("v1" only): the cart may have been
+      // edited while we awaited the supplier. Re-read it after the last await so
+      // the check -> commitOrder -> placeOrder -> clearCart run is synchronous;
+      // if it changed, nothing is ordered or decremented and the cart is kept.
+      if (supplierVariation === "v1" && !sameCartLines(cart.lines, viewCart(req.sessionId).lines)) {
+        res.status(409).json({ error: "your cart changed during checkout — please review it and try again" });
+        return;
+      }
       if (inventoryVariation === "v1") {
         const shortages = commitOrder(cart.lines);
         if (shortages.length > 0) {
@@ -264,14 +323,20 @@ export function createApp(): express.Express {
       // Guarded-release telemetry for enable-inventory-tracking: emitted on BOTH
       // the control and v1 paths so the release can compare them. Never throws.
       trackEvent("enable-inventory-tracking-order-placed", req.sessionId);
+      // Guarded-release telemetry for enable-supplier-stock-verification: emitted
+      // on BOTH the control and v1 paths so the release can compare them.
+      trackEvent("enable-supplier-stock-verification-order-placed", req.sessionId);
     } catch (err) {
       trackEvent("enable-discount-codes-error", req.sessionId);
       trackEvent("enable-inventory-tracking-error", req.sessionId);
+      trackEvent("enable-supplier-stock-verification-error", req.sessionId);
       throw err;
     } finally {
+      if (holdsCheckoutSlot) checkoutsInFlight.delete(req.sessionId);
       const elapsedMs = performance.now() - startedAt;
       trackEvent("enable-discount-codes-latency", req.sessionId, elapsedMs);
       trackEvent("enable-inventory-tracking-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-supplier-stock-verification-latency", req.sessionId, elapsedMs);
     }
   });
 
