@@ -77,6 +77,10 @@ export function createApp(): express.Express {
     res.json({ ok: true });
   });
 
+  app.get("/api/status", (_req, res) => {
+    res.json({ ok: true, version: process.env.GIT_SHA ?? "dev" });
+  });
+
   app.get("/api/storefront", async (req, res) => {
     const showPromoBanner = await isEnabled("show-promo-banner", req.sessionId);
     const categoryFilter = (await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control")) === "v1";

@@ -6,6 +6,23 @@ function agent() {
   return request.agent(createApp());
 }
 
+describe("status", () => {
+  it("reports the running build's version", async () => {
+    process.env.GIT_SHA = "abc1234";
+    try {
+      const res = await agent().get("/api/status").expect(200);
+      expect(res.body).toEqual({ ok: true, version: "abc1234" });
+    } finally {
+      delete process.env.GIT_SHA;
+    }
+  });
+
+  it("defaults the version to dev when GIT_SHA is unset", async () => {
+    const res = await agent().get("/api/status").expect(200);
+    expect(res.body.version).toBe("dev");
+  });
+});
+
 describe("products", () => {
   it("lists the catalog", async () => {
     const res = await agent().get("/api/products").expect(200);
