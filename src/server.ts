@@ -96,6 +96,9 @@ export function createApp(): express.Express {
     const supplierStockVerification =
       (await getVariation(SUPPLIER_STOCK_VERIFICATION_FLAG, req.sessionId, "control")) === "v1";
     const productSearch = (await getVariation(PRODUCT_SEARCH_FLAG, req.sessionId, "control")) === "v1";
+    // enable-wishlist: only "v1" tells the client to show the wishlist UI (and
+    // to call /api/wishlist at all). Control/unknown values => false.
+    const wishlist = (await getVariation(WISHLIST_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
@@ -107,6 +110,7 @@ export function createApp(): express.Express {
       inventoryTracking,
       supplierStockVerification,
       productSearch,
+      wishlist,
     });
   });
 

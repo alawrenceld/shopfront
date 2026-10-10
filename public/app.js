@@ -54,6 +54,13 @@ async function loadStorefront() {
     flagState.productSearch = true;
     document.getElementById("search-form").hidden = false;
   }
+  // enable-wishlist: server sends wishlist = (variation === "v1").
+  // Only v1 loads the wishlist (save buttons, nav, wishlist view). Control never
+  // calls /api/wishlist, so it can never see the wishlist error banner.
+  if (info.wishlist === true) {
+    flagState.wishlist = true;
+    await loadWishlist();
+  }
 }
 
 // Flag state learned from /api/storefront; defaults are the control experience.
@@ -62,6 +69,7 @@ const flagState = {
   inventoryTracking: false,
   supplierStockVerification: false,
   productSearch: false,
+  wishlist: false,
 };
 
 const listState = { category: "", sort: "", q: "" };
@@ -295,7 +303,8 @@ function renderWishlist() {
 
 /** Show the view named by the URL hash (#wishlist), defaulting to products. */
 function showView() {
-  const wishlist = wishlistState.available && location.hash === "#wishlist";
+  // enable-wishlist: the wishlist view is v1-only.
+  const wishlist = flagState.wishlist === true && wishlistState.available && location.hash === "#wishlist";
   document.getElementById("products-view").hidden = wishlist;
   document.getElementById("wishlist-view").hidden = !wishlist;
   document.querySelectorAll(".main-nav a").forEach((a) => {
@@ -372,4 +381,3 @@ document.getElementById("search-form").addEventListener("submit", async (event) 
 loadStorefront();
 loadProducts();
 renderCart();
-loadWishlist();
