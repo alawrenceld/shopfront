@@ -1,7 +1,13 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/server.js";
-import { verifyStockWithSupplier, SupplierTimeoutError } from "../src/supplier.js";
+import {
+  verifyStockWithSupplier,
+  SupplierTimeoutError,
+  supplierConfig,
+  DEFAULT_VERIFY_DELAY_MS,
+  DEFAULT_VERIFY_TIMEOUT_MS,
+} from "../src/supplier.js";
 
 // Checkout's supplier verification is gated by `enable-supplier-stock-verification`
 // (string multivariate: "control" | "v1"). Flags are mocked so each test pins the arm.
@@ -52,6 +58,52 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnv("SUPPLIER_VERIFY_DELAY_MS", savedEnv.delay);
   restoreEnv("SUPPLIER_VERIFY_TIMEOUT_MS", savedEnv.timeout);
+});
+
+describe("supplier config parsing", () => {
+  it("uses the defaults when unset", () => {
+    delete process.env.SUPPLIER_VERIFY_DELAY_MS;
+    delete process.env.SUPPLIER_VERIFY_TIMEOUT_MS;
+    expect(supplierConfig()).toEqual({
+      delayMs: DEFAULT_VERIFY_DELAY_MS,
+      timeoutMs: DEFAULT_VERIFY_TIMEOUT_MS,
+    });
+  });
+
+  it.each(["", "   ", "abc", "NaN", "-5", "Infinity"])("falls back to the defaults for %j", (raw) => {
+    process.env.SUPPLIER_VERIFY_DELAY_MS = raw;
+    process.env.SUPPLIER_VERIFY_TIMEOUT_MS = raw;
+    expect(supplierConfig()).toEqual({
+      delayMs: DEFAULT_VERIFY_DELAY_MS,
+      timeoutMs: DEFAULT_VERIFY_TIMEOUT_MS,
+    });
+  });
+
+  it("accepts finite numbers >= 0, including 0", () => {
+    process.env.SUPPLIER_VERIFY_DELAY_MS = "0";
+    process.env.SUPPLIER_VERIFY_TIMEOUT_MS = "250";
+    expect(supplierConfig()).toEqual({ delayMs: 0, timeoutMs: 250 });
+  });
+
+  it("default timeout is below the feed's slowest response, so the retry path is reachable", () => {
+    expect(DEFAULT_VERIFY_TIMEOUT_MS).toBeLessThan(DEFAULT_VERIFY_DELAY_MS * 1.5);
+  });
+
+  it("a non-numeric timeout no longer disables the timeout check", async () => {
+    // delay 1000 * (0.5 + 0.9) = 1400ms > default 500ms timeout -> fails closed.
+    process.env.SUPPLIER_VERIFY_DELAY_MS = "1000";
+    process.env.SUPPLIER_VERIFY_TIMEOUT_MS = "abc";
+    // Real timers: two attempts each capped at the 500ms default (~1s total).
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.9);
+    try {
+      await expect(
+        verifyStockWithSupplier([{ productId: "gear-v60", quantity: 1 }]),
+      ).rejects.toBeInstanceOf(SupplierTimeoutError);
+      expect(random).toHaveBeenCalledTimes(2);
+    } finally {
+      random.mockRestore();
+    }
+  });
 });
 
 describe("supplier stock verification", () => {
