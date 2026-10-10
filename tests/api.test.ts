@@ -107,6 +107,46 @@ describe("checkout", () => {
     const order = await session.get(`/api/orders/${checkout.body.order.id}`).expect(200);
     expect(order.body.order.id).toBe(checkout.body.order.id);
   });
+
+  it("applies a valid discount code to the subtotal", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-kettle" }).expect(200);
+    const checkout = await session
+      .post("/api/checkout")
+      .send({ discountCode: "SAVE10" })
+      .expect(201);
+    expect(checkout.body.order.subtotalCents).toBe(5400);
+    expect(checkout.body.order.discountCents).toBe(540);
+    expect(checkout.body.order.totalCents).toBe(4860);
+    expect(checkout.body.order.discountCode).toBe("SAVE10");
+  });
+
+  it("accepts discount codes case-insensitively", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-filters" }).expect(200);
+    const checkout = await session
+      .post("/api/checkout")
+      .send({ discountCode: "save10" })
+      .expect(201);
+    expect(checkout.body.order.discountCode).toBe("SAVE10");
+    expect(checkout.body.order.discountCents).toBe(95);
+  });
+
+  it("rejects an unknown discount code and keeps the cart", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "beans-colombia" }).expect(200);
+    await session.post("/api/checkout").send({ discountCode: "NOTACODE" }).expect(400);
+    const cart = await session.get("/api/cart").expect(200);
+    expect(cart.body.lines).toHaveLength(1);
+  });
+
+  it("places an undiscounted order when no code is given", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-kettle" }).expect(200);
+    const checkout = await session.post("/api/checkout").expect(201);
+    expect(checkout.body.order.discountCents).toBe(0);
+    expect(checkout.body.order.totalCents).toBe(checkout.body.order.subtotalCents);
+  });
 });
 
 describe("storefront", () => {

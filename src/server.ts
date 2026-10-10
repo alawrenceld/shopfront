@@ -12,6 +12,11 @@ const SESSION_COOKIE = "shopfront_session";
 const CATEGORY_FILTER_FLAG = "enable-category-filter";
 const PRICE_SORT_FLAG = "enable-price-sort";
 
+// Percentage-off discount codes, applied to the cart subtotal at checkout.
+const DISCOUNT_CODES: Record<string, number> = {
+  SAVE10: 0.1,
+};
+
 declare global {
   namespace Express {
     interface Request {
@@ -135,7 +140,22 @@ export function createApp(): express.Express {
       res.status(400).json({ error: "cart is empty" });
       return;
     }
-    const order = placeOrder(cart);
+    const { discountCode } = req.body ?? {};
+    let discount;
+    if (discountCode !== undefined && discountCode !== "") {
+      if (typeof discountCode !== "string") {
+        res.status(400).json({ error: "invalid discount code" });
+        return;
+      }
+      const code = discountCode.trim().toUpperCase();
+      const rate = DISCOUNT_CODES[code];
+      if (rate === undefined) {
+        res.status(400).json({ error: "invalid discount code" });
+        return;
+      }
+      discount = { code, discountCents: Math.round(cart.totalCents * rate) };
+    }
+    const order = placeOrder(cart, discount);
     clearCart(req.sessionId);
     res.status(201).json({ order });
   });
