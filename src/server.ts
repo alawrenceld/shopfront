@@ -7,6 +7,7 @@ import { products, getProduct, type Product } from "./catalog.js";
 import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart } from "./cart.js";
 import { remainingStock, commitOrder } from "./inventory.js";
 import { placeOrder, getOrder } from "./orders.js";
+import { verifyStockWithSupplier, SupplierTimeoutError } from "./supplier.js";
 import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
 const SESSION_COOKIE = "shopfront_session";
@@ -245,6 +246,18 @@ export function createApp(): express.Express {
           return;
         }
         discount = { code, discountCents: Math.round(cart.totalCents * rate) };
+      }
+      try {
+        await verifyStockWithSupplier(cart.lines);
+      } catch (err) {
+        if (err instanceof SupplierTimeoutError) {
+          res.status(503).json({
+            error: "could not verify stock with the supplier — please try again",
+            productId: err.productId,
+          });
+          return;
+        }
+        throw err;
       }
       // enable-inventory-tracking: only "v1" commits the order against stock
       // (409 + shortages on oversell, nothing decremented). Control never reads
