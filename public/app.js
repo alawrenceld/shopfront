@@ -53,15 +53,17 @@ async function loadStorefront() {
 // Flag state learned from /api/storefront; defaults are the control experience.
 const flagState = { cartQuantityEditing: false, inventoryTracking: false, supplierStockVerification: false };
 
-const listState = { category: "", sort: "" };
+const listState = { category: "", sort: "", q: "" };
 
 async function loadProducts() {
   const params = new URLSearchParams();
   if (listState.category) params.set("category", listState.category);
   if (listState.sort) params.set("sort", listState.sort);
+  if (listState.q) params.set("q", listState.q);
   const qs = params.toString();
   const { products } = await api(qs ? `/api/products?${qs}` : "/api/products");
   const grid = document.getElementById("products");
+  document.getElementById("no-results").hidden = products.length > 0;
   grid.replaceChildren(
     ...products.map((p) => {
       const card = document.createElement("div");
@@ -199,6 +201,27 @@ document.getElementById("filters").addEventListener("click", async (event) => {
 document.getElementById("sort").addEventListener("change", async (event) => {
   listState.sort = event.target.value;
   await loadProducts();
+});
+
+// Name search: submitting runs immediately; typing runs after a short debounce.
+const SEARCH_DEBOUNCE_MS = 250;
+let searchTimer;
+async function applySearch() {
+  clearTimeout(searchTimer);
+  const q = document.getElementById("search").value.trim();
+  if (q === listState.q) return;
+  listState.q = q;
+  await loadProducts();
+}
+
+document.getElementById("search").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(applySearch, SEARCH_DEBOUNCE_MS);
+});
+
+document.getElementById("search-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await applySearch();
 });
 
 loadStorefront();

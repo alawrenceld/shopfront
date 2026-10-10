@@ -17,6 +17,10 @@
   <main>
     <section>
       <h2>Products</h2>
+      <form class="search-row" id="search-form" role="search">
+        <label for="search">Search</label>
+        <input id="search" type="search" placeholder="Search products by name" autocomplete="off" />
+      </form>
       <div class="filters" id="filters" hidden>
         <button class="filter active" data-category="">All</button>
         <button class="filter" data-category="beans">Beans</button>
@@ -31,6 +35,7 @@
         </select>
       </div>
       <div id="products" class="grid"></div>
+      <p id="no-results" class="no-results" hidden>No products match your search.</p>
     </section>
     <aside>
       <h2>Cart</h2>

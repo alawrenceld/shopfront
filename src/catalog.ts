@@ -61,3 +61,14 @@ export const products: Product[] = [
 export function getProduct(id: string): Product | undefined {
   return products.find((p) => p.id === id);
 }
+
+/**
+ * Narrow a product list to those whose name contains `query`, ignoring case and
+ * leading/trailing whitespace. An empty (or whitespace-only) query matches
+ * everything. Returns a new array; the input is never mutated.
+ */
+export function searchByName<T extends Pick<Product, "name">>(list: T[], query: string): T[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return [...list];
+  return list.filter((p) => p.name.toLowerCase().includes(needle));
+}

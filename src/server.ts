@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import cookieParser from "cookie-parser";
-import { products, getProduct, type Product } from "./catalog.js";
+import { products, getProduct, searchByName, type Product } from "./catalog.js";
 import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart, type CartLine } from "./cart.js";
 import { remainingStock, commitOrder } from "./inventory.js";
 import { placeOrder, getOrder } from "./orders.js";
@@ -122,6 +122,16 @@ export function createApp(): express.Express {
           return;
         }
         list = products.filter((p) => p.category === category);
+      }
+      // Name search: ?q= narrows to products whose name contains the query
+      // (case-insensitive, trimmed). Empty/whitespace-only matches everything.
+      const q = req.query.q;
+      if (q !== undefined) {
+        if (typeof q !== "string") {
+          res.status(400).json({ error: "invalid search query" });
+          return;
+        }
+        list = searchByName(list, q);
       }
       // enable-price-sort: only the "v1" variation honors ?sort=; on control the
       // param is ignored entirely (no validation, no 400) — pre-PR behavior.

@@ -81,6 +81,38 @@ main {
   color: #2b2118;
 }
 
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.search-row input {
+  flex: 1;
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e4dcd2;
+  border-radius: 6px;
+  background: #fff;
+  color: #2b2118;
+}
+
+.no-results {
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+  color: #6b5d4f;
+  background: #fff;
+  border: 1px dashed #e4dcd2;
+  border-radius: 8px;
+}
+
+.no-results[hidden] {
+  display: none;
+}
+
 .filter.active {
   background: #2b2118;
   color: #faf6f1;
