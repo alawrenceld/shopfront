@@ -71,7 +71,25 @@ async function renderCart() {
       const row = document.createElement("div");
       row.className = "cart-line";
       const label = document.createElement("span");
-      label.textContent = `${line.quantity} × ${line.name}`;
+      label.textContent = line.name;
+      const qty = document.createElement("span");
+      qty.className = "qty-controls";
+      const setQty = async (quantity) => {
+        await api(`/api/cart/${line.productId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ quantity }),
+        });
+        await renderCart();
+      };
+      const minus = document.createElement("button");
+      minus.textContent = "−";
+      minus.addEventListener("click", () => setQty(line.quantity - 1));
+      const count = document.createElement("span");
+      count.textContent = line.quantity;
+      const plus = document.createElement("button");
+      plus.textContent = "+";
+      plus.addEventListener("click", () => setQty(line.quantity + 1));
+      qty.append(minus, count, plus);
       const right = document.createElement("span");
       right.textContent = fmt(line.lineTotalCents);
       const remove = document.createElement("button");
@@ -81,7 +99,7 @@ async function renderCart() {
         await renderCart();
       });
       right.append(remove);
-      row.append(label, right);
+      row.append(label, qty, right);
       return row;
     }),
   );

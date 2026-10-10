@@ -74,6 +74,35 @@ describe("cart", () => {
     await session.post("/api/cart").send({ productId: "gear-v60", quantity: 0 }).expect(400);
   });
 
+  it("sets a line's quantity directly", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-v60" }).expect(200);
+    const res = await session
+      .patch("/api/cart/gear-v60")
+      .send({ quantity: 5 })
+      .expect(200);
+    expect(res.body.lines[0].quantity).toBe(5);
+    expect(res.body.totalCents).toBe(5 * 2800);
+  });
+
+  it("removes a line when quantity is set to zero", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-v60" }).expect(200);
+    const res = await session
+      .patch("/api/cart/gear-v60")
+      .send({ quantity: 0 })
+      .expect(200);
+    expect(res.body.lines).toEqual([]);
+  });
+
+  it("rejects invalid quantity updates", async () => {
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-v60" }).expect(200);
+    await session.patch("/api/cart/gear-v60").send({ quantity: 100 }).expect(400);
+    await session.patch("/api/cart/gear-v60").send({ quantity: 1.5 }).expect(400);
+    await session.patch("/api/cart/nope").send({ quantity: 2 }).expect(400);
+  });
+
   it("removes items", async () => {
     const session = agent();
     await session.post("/api/cart").send({ productId: "beans-colombia" }).expect(200);

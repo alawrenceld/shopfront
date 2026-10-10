@@ -4,7 +4,7 @@ import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import { products, getProduct } from "./catalog.js";
-import { addToCart, removeFromCart, clearCart, viewCart } from "./cart.js";
+import { addToCart, removeFromCart, setQuantity, clearCart, viewCart } from "./cart.js";
 import { placeOrder, getOrder } from "./orders.js";
 import { isEnabled, getVariation, trackEvent } from "./flags.js";
 
@@ -129,6 +129,20 @@ export function createApp(): express.Express {
       return;
     }
     addToCart(req.sessionId, productId, qty);
+    res.json(viewCart(req.sessionId));
+  });
+
+  app.patch("/api/cart/:productId", (req, res) => {
+    const { quantity } = req.body ?? {};
+    if (!getProduct(req.params.productId)) {
+      res.status(400).json({ error: "unknown productId" });
+      return;
+    }
+    if (!Number.isInteger(quantity) || quantity < 0 || quantity > 99) {
+      res.status(400).json({ error: "quantity must be between 0 and 99" });
+      return;
+    }
+    setQuantity(req.sessionId, req.params.productId, quantity);
     res.json(viewCart(req.sessionId));
   });
 
