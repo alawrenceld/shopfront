@@ -318,6 +318,35 @@ describe("enable-supplier-stock-verification: concurrent checkouts and cart edit
     expect(cart.body.lines).toEqual([expect.objectContaining({ productId: "gear-kettle" })]);
   });
 
+  it("v1: cart-changed 409 emits latency only — no error, no order-placed", async () => {
+    setVariations({ [FLAG]: "v1" });
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-kettle" }).expect(200);
+    mocks.trackEvent.mockClear();
+    const checkout = session.post("/api/checkout").then((r) => r);
+    await pause(50);
+    await session.post("/api/cart").send({ productId: "beans-decaf" }).expect(200);
+    const res = await checkout;
+    expect(res.status).toBe(409);
+    expect(eventKeys()).toEqual([LATENCY]);
+  });
+
+  it("control: concurrent checkouts are never refused by the v1 in-flight guard", async () => {
+    setVariations({ [FLAG]: "control" });
+    const session = agent();
+    await session.post("/api/cart").send({ productId: "gear-kettle" }).expect(200);
+    const [a, b] = await Promise.all([
+      session.post("/api/checkout").then((r) => r),
+      session.post("/api/checkout").then((r) => r),
+    ]);
+    for (const r of [a, b]) {
+      expect(r.status).not.toBe(409);
+      expect(r.status).not.toBe(503);
+    }
+    expect([a.status, b.status]).toContain(201);
+    expect(Math.random).not.toHaveBeenCalled();
+  });
+
   it("control: no in-flight guard or cart re-check (pre-PR behavior)", async () => {
     setVariations({ [FLAG]: "control" });
     const session = agent();
