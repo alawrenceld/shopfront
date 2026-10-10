@@ -4,6 +4,32 @@ A small e-commerce storefront selling small-batch coffee and brew gear: product
 catalog, cart, and checkout. Single Express service with an in-memory store and
 a static frontend.
 
+## What this repository actually is
+
+Shopfront is a **demo environment**, not a product. It exists so that
+[LaunchDarkly's](https://launchdarkly.com) NextGen factory demo can show a real
+software factory operating on a real codebase: every pull request here was
+driven through an automated chain
+([launchdarkly-auto-factory](https://github.com/launchdarkly-labs/launchdarkly-auto-factory))
+that decides whether a change needs a feature flag, wires it, authors guardrail
+metrics and tests, reviews the result, and releases it behind a guarded
+rollout. The PR history, review verdicts, judge scores, and release records are
+the demo's raw material — they are all real, which is the point.
+
+Two things a reader should know:
+
+- **One regression here is seeded on purpose.** PR [#6](../../pull/6)'s
+  supplier stock-verification step (`src/supplier.ts`) adds real awaited
+  latency to checkout and a real, tunable 503 rate (`SUPPLIER_VERIFY_DELAY_MS`
+  / `SUPPLIER_VERIFY_TIMEOUT_MS`). It exists so a guarded rollout has a genuine
+  regression to catch and roll back. The factory's reviewer independently
+  caught (and its rework loop fixed) a real concurrency bug in that PR, but the
+  regression's measurable badness is intact by design. Do not copy that pattern
+  into a real checkout path.
+- **The app is deliberately simple.** In-memory store, cookie sessions, no
+  database, no auth — a legible stage for flag-gated changes, not a reference
+  architecture.
+
 ## Stack
 
 - Node 20+, TypeScript, Express 5
