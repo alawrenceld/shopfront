@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import cookieParser from "cookie-parser";
-import { products, getProduct, type Product } from "./catalog.js";
+import { products, getProduct, searchByName, type Product } from "./catalog.js";
 import { addToCart, removeFromCart, setQuantity, clearCart, viewCart, getCart, type CartLine } from "./cart.js";
 import { remainingStock, commitOrder } from "./inventory.js";
 import { placeOrder, getOrder } from "./orders.js";
@@ -17,6 +17,7 @@ const DISCOUNT_CODES_FLAG = "enable-discount-codes";
 const CART_QUANTITY_EDITING_FLAG = "enable-cart-quantity-editing";
 const INVENTORY_TRACKING_FLAG = "enable-inventory-tracking";
 const SUPPLIER_STOCK_VERIFICATION_FLAG = "enable-supplier-stock-verification";
+const PRODUCT_SEARCH_FLAG = "enable-product-search";
 
 /**
  * enable-inventory-tracking: shape a product for the API. Only the "v1"
@@ -92,6 +93,7 @@ export function createApp(): express.Express {
       (await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control")) === "v1";
     const supplierStockVerification =
       (await getVariation(SUPPLIER_STOCK_VERIFICATION_FLAG, req.sessionId, "control")) === "v1";
+    const productSearch = (await getVariation(PRODUCT_SEARCH_FLAG, req.sessionId, "control")) === "v1";
     res.json({
       name: "Shopfront",
       tagline: "Small-batch coffee and brew gear",
@@ -102,6 +104,7 @@ export function createApp(): express.Express {
       cartQuantityEditing,
       inventoryTracking,
       supplierStockVerification,
+      productSearch,
     });
   });
 
@@ -114,6 +117,7 @@ export function createApp(): express.Express {
       const categoryFilterVariation = await getVariation(CATEGORY_FILTER_FLAG, req.sessionId, "control");
       const priceSortVariation = await getVariation(PRICE_SORT_FLAG, req.sessionId, "control");
       const inventoryVariation = await getVariation(INVENTORY_TRACKING_FLAG, req.sessionId, "control");
+      const productSearchVariation = await getVariation(PRODUCT_SEARCH_FLAG, req.sessionId, "control");
       const category = req.query.category;
       let list = products;
       if (categoryFilterVariation === "v1" && category !== undefined) {
@@ -122,6 +126,18 @@ export function createApp(): express.Express {
           return;
         }
         list = products.filter((p) => p.category === category);
+      }
+      // enable-product-search: only the "v1" variation honors ?q= — narrowing to
+      // products whose name contains the query (case-insensitive, trimmed;
+      // empty/whitespace-only matches everything). On control the param is
+      // ignored entirely (no validation, no 400) — pre-PR behavior.
+      const q = req.query.q;
+      if (productSearchVariation === "v1" && q !== undefined) {
+        if (typeof q !== "string") {
+          res.status(400).json({ error: "invalid search query" });
+          return;
+        }
+        list = searchByName(list, q);
       }
       // enable-price-sort: only the "v1" variation honors ?sort=; on control the
       // param is ignored entirely (no validation, no 400) — pre-PR behavior.
@@ -139,16 +155,21 @@ export function createApp(): express.Express {
       // Guarded-release telemetry for enable-price-sort: emitted on BOTH the
       // control and v1 paths so the release can compare them. Never throws.
       trackEvent("enable-price-sort-products-loaded", req.sessionId);
+      // Guarded-release telemetry for enable-product-search: emitted on BOTH the
+      // control and v1 paths so the release can compare them. Never throws.
+      trackEvent("enable-product-search-products-loaded", req.sessionId);
     } catch (err) {
       trackEvent("enable-category-filter-error", req.sessionId);
       trackEvent("enable-price-sort-error", req.sessionId);
       // enable-inventory-tracking shapes every product (toApiProduct) on both arms.
       trackEvent("enable-inventory-tracking-error", req.sessionId);
+      trackEvent("enable-product-search-error", req.sessionId);
       throw err;
     } finally {
       const elapsedMs = performance.now() - startedAt;
       trackEvent("enable-category-filter-latency", req.sessionId, elapsedMs);
       trackEvent("enable-price-sort-latency", req.sessionId, elapsedMs);
+      trackEvent("enable-product-search-latency", req.sessionId, elapsedMs);
     }
   });
 

@@ -48,20 +48,35 @@ async function loadStorefront() {
   if (info.supplierStockVerification === true) {
     flagState.supplierStockVerification = true;
   }
+  // enable-product-search: server sends productSearch = (variation === "v1").
+  // Only v1 shows the search box and the no-results message.
+  if (info.productSearch === true) {
+    flagState.productSearch = true;
+    document.getElementById("search-form").hidden = false;
+  }
 }
 
 // Flag state learned from /api/storefront; defaults are the control experience.
-const flagState = { cartQuantityEditing: false, inventoryTracking: false, supplierStockVerification: false };
+const flagState = {
+  cartQuantityEditing: false,
+  inventoryTracking: false,
+  supplierStockVerification: false,
+  productSearch: false,
+};
 
-const listState = { category: "", sort: "" };
+const listState = { category: "", sort: "", q: "" };
 
 async function loadProducts() {
   const params = new URLSearchParams();
   if (listState.category) params.set("category", listState.category);
   if (listState.sort) params.set("sort", listState.sort);
+  if (listState.q) params.set("q", listState.q);
   const qs = params.toString();
   const { products } = await api(qs ? `/api/products?${qs}` : "/api/products");
   const grid = document.getElementById("products");
+  // enable-product-search: the no-results message is v1-only (control stays
+  // pixel-identical to pre-PR behavior).
+  document.getElementById("no-results").hidden = !(flagState.productSearch === true && products.length === 0);
   grid.replaceChildren(
     ...products.map((p) => {
       const card = document.createElement("div");
@@ -199,6 +214,27 @@ document.getElementById("filters").addEventListener("click", async (event) => {
 document.getElementById("sort").addEventListener("change", async (event) => {
   listState.sort = event.target.value;
   await loadProducts();
+});
+
+// Name search: submitting runs immediately; typing runs after a short debounce.
+const SEARCH_DEBOUNCE_MS = 250;
+let searchTimer;
+async function applySearch() {
+  clearTimeout(searchTimer);
+  const q = document.getElementById("search").value.trim();
+  if (q === listState.q) return;
+  listState.q = q;
+  await loadProducts();
+}
+
+document.getElementById("search").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(applySearch, SEARCH_DEBOUNCE_MS);
+});
+
+document.getElementById("search-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await applySearch();
 });
 
 loadStorefront();

@@ -31,7 +31,7 @@ npm test
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/api/storefront` | Store name, tagline, and any active promo banner |
-| GET | `/api/products` | List the catalog |
+| GET | `/api/products` | List the catalog; `?q=` narrows to products whose name contains the query (case-insensitive) |
 | GET | `/api/products/:id` | One product |
 | GET | `/api/cart` | Current session's cart |
 | POST | `/api/cart` | Add `{ productId, quantity? }` to the cart |
