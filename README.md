@@ -36,10 +36,13 @@ npm test
 | GET | `/api/cart` | Current session's cart |
 | POST | `/api/cart` | Add `{ productId, quantity? }` to the cart |
 | DELETE | `/api/cart/:productId` | Remove a line |
+| GET | `/api/wishlist` | Current session's wishlist, with each product's name, price, category, and `inStock` |
+| POST | `/api/wishlist` | Add `{ productId }` to the wishlist (no-op if already present; 404 if unknown) |
+| DELETE | `/api/wishlist/:productId` | Remove a product from the wishlist (no-op if absent) |
 | POST | `/api/checkout` | Place an order from the cart |
 | GET | `/api/orders/:id` | Look up an order |
 
-Sessions are cookie-based; carts and orders live in memory.
+Sessions are cookie-based; carts, wishlists, and orders live in memory.
 
 ## Feature flags
 
